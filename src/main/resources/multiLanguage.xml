@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<root>
+
+    <entry id="Settings">
+        <language code="en">Settings</language>
+        <language code="el">Ρυθμίσεις</language>
+    </entry>
+
+    <entry id="App Settings">
+        <language code="en">App Settings</language>
+        <language code="el">Ρυθμίσεις Εφαρμογής</language>
+    </entry>
+
+    <entry id="Action">
+        <language code="en">Action</language>
+        <language code="el">Ενέργεια</language>
+    </entry>
+
+    <entry id="Date">
+        <language code="en">Date</language>
+        <language code="el">Ημερομηνία</language>
+    </entry>
+
+    <entry id="Name">
+        <language code="en">Name</language>
+        <language code="el">Όνομα</language>
+    </entry>
+
+    <entry id="Value">
+        <language code="en">Value</language>
+        <language code="el">Τιμή</language>
+    </entry>
+
+    <entry id="Action">
+        <language code="en">Action</language>
+        <language code="el">Ενέργεια</language>
+    </entry>
+
+    <entry id="Date">
+        <language code="en">Date</language>
+        <language code="el">Ημερομηνία</language>
+    </entry>
+
+    <entry id="Save">
+        <language code="en">Save</language>
+        <language code="el">Αποθήκευση</language>
+    </entry>
+
+    <entry id="Cancel">
+        <language code="en">Cancel</language>
+        <language code="el">Ακύρωση</language>
+    </entry>
+
+</root>
