@@ -27,3 +27,18 @@ export type Language = {
     name: string
 }
 
+export type ScanResult = {
+    added: number
+    skipped: number
+    errors: number
+    message: string
+}
+
+export type MediaFile = {
+    id: number
+    path: string
+    filename: string
+    hash: string | null
+    kind: string
+}
+

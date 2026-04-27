@@ -51,4 +51,84 @@
         <language code="el">Ακύρωση</language>
     </entry>
 
+    <entry id="Photos">
+        <language code="en">Photos</language>
+        <language code="el">Φωτογραφίες</language>
+    </entry>
+
+    <entry id="Browse and scan photos">
+        <language code="en">Browse and scan photos</language>
+        <language code="el">Περιήγηση και σάρωση φωτογραφιών</language>
+    </entry>
+
+    <entry id="Scan Folder">
+        <language code="en">Scan Folder</language>
+        <language code="el">Σάρωση Φακέλου</language>
+    </entry>
+
+    <entry id="Enter server folder path">
+        <language code="en">Enter server folder path</language>
+        <language code="el">Εισάγετε διαδρομή φακέλου</language>
+    </entry>
+
+    <entry id="Scan">
+        <language code="en">Scan</language>
+        <language code="el">Σάρωση</language>
+    </entry>
+
+    <entry id="Scanning...">
+        <language code="en">Scanning...</language>
+        <language code="el">Σάρωση...</language>
+    </entry>
+
+    <entry id="Added">
+        <language code="en">Added</language>
+        <language code="el">Προστέθηκαν</language>
+    </entry>
+
+    <entry id="Skipped">
+        <language code="en">Skipped</language>
+        <language code="el">Παραλείφθηκαν</language>
+    </entry>
+
+    <entry id="Errors">
+        <language code="en">Errors</language>
+        <language code="el">Σφάλματα</language>
+    </entry>
+
+    <entry id="photos">
+        <language code="en">photos</language>
+        <language code="el">φωτογραφίες</language>
+    </entry>
+
+    <entry id="Filename">
+        <language code="en">Filename</language>
+        <language code="el">Όνομα αρχείου</language>
+    </entry>
+
+    <entry id="Path">
+        <language code="en">Path</language>
+        <language code="el">Διαδρομή</language>
+    </entry>
+
+    <entry id="No photos found. Scan a folder to import photos.">
+        <language code="en">No photos found. Scan a folder to import photos.</language>
+        <language code="el">Δεν βρέθηκαν φωτογραφίες. Σαρώστε ένα φάκελο για εισαγωγή.</language>
+    </entry>
+
+    <entry id="Edit Setting">
+        <language code="en">Edit Setting</language>
+        <language code="el">Επεξεργασία Ρύθμισης</language>
+    </entry>
+
+    <entry id="Search problem">
+        <language code="en">Search problem</language>
+        <language code="el">Πρόβλημα αναζήτησης</language>
+    </entry>
+
+    <entry id="No Settings Founded">
+        <language code="en">No Settings Founded</language>
+        <language code="el">Δεν βρέθηκαν ρυθμίσεις</language>
+    </entry>
+
 </root>

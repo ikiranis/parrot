@@ -5,6 +5,7 @@ import {RouteRecordRaw, createRouter, createWebHashHistory} from "vue-router"
 import Home from "@/views/Home.vue"
 import Settings from "@/views/setting/Settings.vue"
 import Setting from "@/views/setting/Setting.vue"
+import Photos from "@/views/Photos.vue"
 
 const routes : RouteRecordRaw[] = [
     {
@@ -22,6 +23,11 @@ const routes : RouteRecordRaw[] = [
         name: 'Setting',
         component: Setting,
         props: true
+    },
+    {
+        path: '/photos',
+        name: 'Photos',
+        component: Photos
     },
 ]
 
