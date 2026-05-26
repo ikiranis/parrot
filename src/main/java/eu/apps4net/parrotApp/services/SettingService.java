@@ -1,6 +1,5 @@
 package eu.apps4net.parrotApp.services;
 
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import eu.apps4net.parrotApp.models.Setting;
@@ -13,7 +12,6 @@ public class SettingService {
 
 	private final SettingRepository settingRepository;
 
-	@Autowired
 	public SettingService(SettingRepository settingRepository) {
 		this.settingRepository = settingRepository;
 	}

@@ -1,6 +1,5 @@
 package eu.apps4net.parrotApp.controllers;
 
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
 import eu.apps4net.parrotApp.configurations.Language;
@@ -17,7 +16,6 @@ import java.util.Map;
 public class SettingController {
 	private final SettingService settingService;
 
-	@Autowired
 	public SettingController(SettingService settingService) {
 		this.settingService = settingService;
 	}

@@ -1,6 +1,5 @@
 package eu.apps4net.parrotApp.controllers;
 
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -22,7 +21,6 @@ public class PhotoController {
 	private final PhotoScanService photoScanService;
 	private final MediaFileRepository mediaFileRepository;
 
-	@Autowired
 	public PhotoController(PhotoScanService photoScanService,
 						   MediaFileRepository mediaFileRepository) {
 		this.photoScanService = photoScanService;

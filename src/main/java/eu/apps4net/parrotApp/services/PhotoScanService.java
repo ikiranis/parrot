@@ -1,6 +1,5 @@
 package eu.apps4net.parrotApp.services;
 
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import eu.apps4net.parrotApp.models.MediaFile;
@@ -31,7 +30,6 @@ public class PhotoScanService {
 	private final MediaFileRepository mediaFileRepository;
 	private final PhotoTagRepository photoTagRepository;
 
-	@Autowired
 	public PhotoScanService(MediaFileRepository mediaFileRepository,
 							PhotoTagRepository photoTagRepository) {
 		this.mediaFileRepository = mediaFileRepository;
