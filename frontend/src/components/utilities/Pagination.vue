@@ -2,14 +2,18 @@
 import {Pageable} from "@/types/index.ts";
 import {language} from "@/functions/languageStore.ts";
 
-const props = defineProps({
-    pagination: {
-        type: Object as () => Pageable,
-        required: true
-    }
-})
+/** Props for the Pagination component. */
+interface Props {
+    /** Current pagination state from the server response. */
+    pagination: Pageable;
+}
 
-const emit = defineEmits(['changePage']);
+const props = defineProps<Props>()
+
+const emit = defineEmits<{
+    /** Emitted when the user navigates to a different page. */
+    changePage: [pagination: Pageable]
+}>();
 
 const prevPage = () => {
     props.pagination.pageNumber--

@@ -7,12 +7,13 @@ import {errorStore} from "@/components/error/errorStore.ts";
 import {language} from "@/functions/languageStore.ts";
 import Loading from "@/components/utilities/Loading.vue";
 
-const props = defineProps({
-    id: {
-        type: String,
-        required: true
-    }
-})
+/** Props for the Edit (setting) component. */
+interface Props {
+    /** ID of the setting to load and edit. */
+    id: string;
+}
+
+const props = defineProps<Props>()
 
 const setting = reactive({
     id: 0,
@@ -30,6 +31,7 @@ onMounted(async () => {
     // Get the selected setting from API
     await getSetting(props.id)
         .then((data) => {
+            if (!data) return;
             const newSetting = {
                 id: data.id,
                 settingName: data.settingName,

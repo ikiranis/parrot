@@ -7,8 +7,9 @@ import router from "@/router";
 import {language} from "@/functions/languageStore.ts";
 import Page404 from "@/components/error/Page404.vue";
 import Loading from "@/components/utilities/Loading.vue";
+import type {Setting} from "@/types";
 
-const settings: Ref<any[]> = ref([]);
+const settings: Ref<Setting[]> = ref([]);
 
 const loading = ref(false)
 
@@ -24,7 +25,7 @@ const loadSettings = async () => {
 
     await getSettings()
         .then(response => {
-            settings.value = response
+            if (response) settings.value = response
         })
         .catch((error) => {
             errorStore.set(true, error.response.data.message, error.response.data.status)

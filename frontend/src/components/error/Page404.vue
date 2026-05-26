@@ -1,14 +1,13 @@
 <script setup lang="ts">
-defineProps({
-    title: {
-        type: String,
-        required: true
-    },
-    text: {
-        type: String,
-        required: true
-    }
-})
+/** Props for the Page404 component. */
+interface Props {
+    /** Heading text displayed in the 404 card. */
+    title: string;
+    /** Body text displayed below the heading. */
+    text: string;
+}
+
+defineProps<Props>()
 </script>
 
 <template>

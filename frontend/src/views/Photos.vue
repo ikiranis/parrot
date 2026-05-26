@@ -14,7 +14,7 @@ const scanResult: Ref<ScanResult | null> = ref(null)
 const photos: Ref<MediaFile[]> = ref([])
 const totalElements = ref(0)
 const currentPage = ref(0)
-const pageSize = 20
+const PAGE_SIZE = 20
 
 onMounted(() => {
     loadPhotos()
@@ -27,12 +27,13 @@ const onScan = async () => {
     scanning.value = true
 
     await scanFolder(folderPath.value.trim())
-        .then((result: ScanResult) => {
-            scanResult.value = result
+        .then((result: ScanResult | undefined) => {
+            if (result) scanResult.value = result
             loadPhotos()
         })
-        .catch((error: any) => {
-            errorStore.set(true, error.response?.data?.message ?? error.message, error.response?.data?.status ?? 500)
+        .catch((error: unknown) => {
+            const err = error as { response?: { data?: { message?: string; status?: number }; }; message?: string }
+            errorStore.set(true, err.response?.data?.message ?? err.message ?? '', err.response?.data?.status ?? 500)
         })
 
     scanning.value = false
@@ -42,19 +43,20 @@ const loadPhotos = async (page: number = 0) => {
     loadingPhotos.value = true
     currentPage.value = page
 
-    await getPhotos(page, pageSize)
-        .then((response: any) => {
+    await getPhotos(page, PAGE_SIZE)
+        .then((response: { content: MediaFile[]; totalElements: number }) => {
             photos.value = response.content
             totalElements.value = response.totalElements
         })
-        .catch((error: any) => {
-            errorStore.set(true, error.response?.data?.message ?? error.message, error.response?.data?.status ?? 500)
+        .catch((error: unknown) => {
+            const err = error as { response?: { data?: { message?: string; status?: number }; }; message?: string }
+            errorStore.set(true, err.response?.data?.message ?? err.message ?? '', err.response?.data?.status ?? 500)
         })
 
     loadingPhotos.value = false
 }
 
-const totalPages = () => Math.ceil(totalElements.value / pageSize)
+const totalPages = () => Math.ceil(totalElements.value / PAGE_SIZE)
 </script>
 
 <template>

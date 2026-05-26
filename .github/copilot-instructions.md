@@ -4,7 +4,7 @@ This is a full-stack Java Spring Boot + Vue 3 project. Always follow the specs d
 
 ## Key Rules (from PRD Section 5 — Coding Standards)
 
-- **Indentation:** 4 spaces everywhere (Java, TypeScript, Vue, SCSS) — never tabs
+- **Indentation:** Tabs everywhere (Java, TypeScript, Vue, SCSS); tab width = 4 spaces
 - **Javadoc:** Required on every public Java class, interface, method, and field (`@param`, `@return`, `@throws`)
 - **TSDoc:** Required on all exported TypeScript functions, composables, types, and Vue components
 - **Java naming:** `PascalCase` classes, `camelCase` methods/variables, `UPPER_SNAKE_CASE` constants

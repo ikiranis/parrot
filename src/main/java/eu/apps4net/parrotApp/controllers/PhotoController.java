@@ -14,13 +14,26 @@ import eu.apps4net.parrotApp.services.PhotoScanService;
 
 import java.util.Map;
 
+/**
+ * REST controller for photo media file operations.
+ * Exposes endpoints to scan folders for new photos and retrieve paginated photo listings.
+ */
 @RestController
-@RequestMapping("api/photo")
+@RequestMapping("api/photos")
 public class PhotoController {
 
+	/** Service responsible for scanning directories for image files. */
 	private final PhotoScanService photoScanService;
+
+	/** Repository for querying and persisting media file records. */
 	private final MediaFileRepository mediaFileRepository;
 
+	/**
+	 * Constructs a new {@code PhotoController}.
+	 *
+	 * @param photoScanService      the photo scanning service
+	 * @param mediaFileRepository   the media file repository
+	 */
 	public PhotoController(PhotoScanService photoScanService,
 						   MediaFileRepository mediaFileRepository) {
 		this.photoScanService = photoScanService;
@@ -28,10 +41,11 @@ public class PhotoController {
 	}
 
 	/**
-	 * Trigger a folder scan for photos.
+	 * Triggers a recursive folder scan for image files.
 	 *
-	 * @param request JSON body with "folderPath" key
-	 * @return ScanResult with added/skipped/errors counts
+	 * @param request JSON body containing a {@code "folderPath"} key with the absolute server path
+	 * @return {@link ScanResult} with counts of added, skipped, and errored files
+	 * @throws ProcessingErrorException if {@code folderPath} is blank
 	 */
 	@PostMapping("scan")
 	public ScanResult scanFolder(@RequestBody Map<String, String> request) {
@@ -45,11 +59,11 @@ public class PhotoController {
 	}
 
 	/**
-	 * Get a paginated list of all photo media files.
+	 * Returns a paginated list of all photo media files, newest first.
 	 *
-	 * @param page page index (0-based)
-	 * @param size page size
-	 * @return Page of MediaFile
+	 * @param page zero-based page index (default {@code 0})
+	 * @param size number of items per page (default {@code 20})
+	 * @return a {@link Page} of {@link MediaFile} records
 	 */
 	@GetMapping("all")
 	public Page<MediaFile> getPhotos(

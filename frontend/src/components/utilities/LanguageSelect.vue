@@ -3,12 +3,13 @@ import config from "@/functions/config.ts"
 import {language} from "@/functions/languageStore.ts"
 import {setNewLanguage} from "@/api/language.ts";
 
-defineProps({
-    collapsed: {
-        type: Boolean,
-        required: false
-    }
-})
+/** Props for the LanguageSelect component. */
+interface Props {
+    /** When `true` the component renders in compact (icon-only) mode. */
+    collapsed?: boolean;
+}
+
+defineProps<Props>()
 
 const setLanguage = async (lang: string) => {
     config.setLanguage(lang)

@@ -3,12 +3,13 @@
 import SettingEdit from '@/components/setting/Edit.vue'
 import error from "@/components/error/Error.vue"
 
-const props = defineProps({
-    id: {
-        type: String,
-        required: true
-    }
-})
+/** Props for the Setting view. */
+interface Props {
+    /** The setting identifier passed via the router. */
+    id: string;
+}
+
+const props = defineProps<Props>()
 
 </script>
 

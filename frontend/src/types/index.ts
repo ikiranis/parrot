@@ -1,44 +1,57 @@
 
+/** Pagination metadata returned by Spring Data paged responses. */
 export interface Pageable {
-    offset: number;
-    pageNumber: number;
-    pageSize: number;
-    paged: boolean;
-    sort: Sort;
-    unpaged: boolean;
-    totalPages: number;
-    sortField: SortField
+	offset: number;
+	pageNumber: number;
+	pageSize: number;
+	paged: boolean;
+	sort: Sort;
+	unpaged: boolean;
+	totalPages: number;
+	sortField: SortField
 }
 
+/** Sort state within a {@link Pageable} response. */
 export type Sort = {
-    empty: boolean;
-    sorted: boolean;
-    unsorted: boolean;
+	empty: boolean;
+	sorted: boolean;
+	unsorted: boolean;
 }
 
+/** Describes a single sortable column and its current sort direction. */
 export type SortField = {
-    field: string;
-    order: string;
-    enable: boolean;
+	field: string;
+	order: string;
+	enable: boolean;
 }
 
+/** A supported UI language option. */
 export type Language = {
-    lang: string,
-    name: string
+	lang: string,
+	name: string
 }
 
+/** Summary returned by a folder-scan operation. */
 export type ScanResult = {
-    added: number
-    skipped: number
-    errors: number
-    message: string
+	added: number
+	skipped: number
+	errors: number
+	message: string
 }
 
+/** A media file entry as returned by the API. */
 export type MediaFile = {
-    id: number
-    path: string
-    filename: string
-    hash: string | null
-    kind: string
+	id: number
+	path: string
+	filename: string
+	hash: string | null
+	kind: string
+}
+
+/** An application configuration setting as returned by the API. */
+export type Setting = {
+	id: number
+	settingName: string
+	settingValue: string
 }
 

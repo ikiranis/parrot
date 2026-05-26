@@ -6,12 +6,13 @@ import LanguageSelect from "@/components/utilities/LanguageSelect.vue";
 
 const route = useRoute()
 
-const props = defineProps({
-    collapsed: {
-        type: Boolean,
-        required: true
-    }
-})
+/** Props for the Sidebar component. */
+interface Props {
+    /** Whether the sidebar is collapsed to icon-only mode. */
+    collapsed: boolean;
+}
+
+const props = defineProps<Props>()
 
 /**
  * Check if the current page is the same as the given page

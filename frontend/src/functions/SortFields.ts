@@ -3,10 +3,20 @@ import {SortField} from "@/types";
 
 const sortFields: Ref<Array<SortField>> = ref([])
 
+/**
+ * Replaces the entire sort-fields store with the given array.
+ *
+ * @param sortFieldsValues new sort-field definitions
+ */
 const setSortFields = (sortFieldsValues: Array<SortField>) => {
     sortFields.value = sortFieldsValues
 }
 
+/**
+ * Returns all sort-field definitions currently in the store.
+ *
+ * @returns array of {@link SortField} entries
+ */
 const getSortFields = () => {
     return sortFields.value
 }
@@ -53,10 +63,22 @@ const getEnabledSortField = () => {
     return sortFields.value.find(field => field.enable) as SortField
 }
 
+/**
+ * Finds the sort-field definition for the given column name.
+ *
+ * @param field the column/field name to look up
+ * @returns the matching {@link SortField}
+ */
 const getSortField = (field: string) : SortField => {
     return sortFields.value.find(sortField => sortField.field === field) as SortField
 }
 
+/**
+ * Returns the array index of the sort-field with the given column name.
+ *
+ * @param field the column/field name to search for
+ * @returns the zero-based index, or `-1` if not found
+ */
 const getSortFieldIndex = (field: string) : number => {
     return sortFields.value.findIndex(sortField => sortField.field === field)
 }

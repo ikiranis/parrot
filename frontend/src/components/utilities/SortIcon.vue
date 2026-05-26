@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import {SortField} from "@/types";
 
-defineProps({
-    sortField: {
-        type: Object as () => SortField,
-        required: true
-    }
-})
+/** Props for the SortIcon component. */
+interface Props {
+    /** The sort-field descriptor that drives the icon direction. */
+    sortField: SortField;
+}
+
+defineProps<Props>()
 </script>
 
 <template>

@@ -4,79 +4,147 @@ import jakarta.persistence.*;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
+/**
+ * JPA entity representing a media file entry in the library.
+ * Stores the file system path, filename, optional hash, and media kind.
+ */
 @Entity(name = "MediaFile")
 @Table(name = "media_file")
 public class MediaFile {
 
-    @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long id;
+	/** Auto-generated primary key. */
+	@Id
+	@GeneratedValue(strategy = GenerationType.IDENTITY)
+	private Long id;
 
-    @NotBlank
-    @Size(max = 255)
-    @Column(name = "path", nullable = false)
-    private String path;
+	/** Absolute directory path of the file on the server. */
+	@NotBlank
+	@Size(max = 255)
+	@Column(name = "path", nullable = false)
+	private String path;
 
-    @NotBlank
-    @Size(max = 255)
-    @Column(name = "filename", nullable = false)
-    private String filename;
+	/** Name of the file including its extension. */
+	@NotBlank
+	@Size(max = 255)
+	@Column(name = "filename", nullable = false)
+	private String filename;
 
-    @Size(max = 100)
-    @Column(name = "hash")
-    private String hash;
+	/** Optional content hash used for de-duplication. */
+	@Size(max = 100)
+	@Column(name = "hash")
+	private String hash;
 
-    @Enumerated(EnumType.STRING)
-    @Column(name = "kind")
-    private MediaKind kind;
+	/** Classifies the media file as image, video, audio, or document. */
+	@Enumerated(EnumType.STRING)
+	@Column(name = "kind")
+	private MediaKind kind;
 
-    public MediaFile() {
-    }
+	/** Required no-arg constructor for JPA. */
+	public MediaFile() {
+	}
 
-    public MediaFile(String path, String filename, String hash, MediaKind kind) {
-        this.path = path;
-        this.filename = filename;
-        this.hash = hash;
-        this.kind = kind;
-    }
+	/**
+	 * Constructs a fully-initialised {@code MediaFile}.
+	 *
+	 * @param path     the directory path containing the file
+	 * @param filename the file name
+	 * @param hash     optional content hash, may be {@code null}
+	 * @param kind     the media kind
+	 */
+	public MediaFile(String path, String filename, String hash, MediaKind kind) {
+		this.path = path;
+		this.filename = filename;
+		this.hash = hash;
+		this.kind = kind;
+	}
 
-    public Long getId() {
-        return id;
-    }
+	/**
+	 * Returns the primary key.
+	 *
+	 * @return the id
+	 */
+	public Long getId() {
+		return id;
+	}
 
-    public void setId(Long id) {
-        this.id = id;
-    }
+	/**
+	 * Sets the primary key.
+	 *
+	 * @param id the id to set
+	 */
+	public void setId(Long id) {
+		this.id = id;
+	}
 
-    public String getPath() {
-        return path;
-    }
+	/**
+	 * Returns the directory path.
+	 *
+	 * @return the path
+	 */
+	public String getPath() {
+		return path;
+	}
 
-    public void setPath(String path) {
-        this.path = path;
-    }
+	/**
+	 * Sets the directory path.
+	 *
+	 * @param path the path to set
+	 */
+	public void setPath(String path) {
+		this.path = path;
+	}
 
-    public String getFilename() {
-        return filename;
-    }
+	/**
+	 * Returns the file name.
+	 *
+	 * @return the filename
+	 */
+	public String getFilename() {
+		return filename;
+	}
 
-    public void setFilename(String filename) {
-        this.filename = filename;
-    }
+	/**
+	 * Sets the file name.
+	 *
+	 * @param filename the filename to set
+	 */
+	public void setFilename(String filename) {
+		this.filename = filename;
+	}
 
-    public String getHash() {
-        return hash;
-    }
+	/**
+	 * Returns the optional content hash.
+	 *
+	 * @return the hash, or {@code null} if not computed
+	 */
+	public String getHash() {
+		return hash;
+	}
 
-    public void setHash(String hash) {
-        this.hash = hash;
-    }
+	/**
+	 * Sets the content hash.
+	 *
+	 * @param hash the hash to set
+	 */
+	public void setHash(String hash) {
+		this.hash = hash;
+	}
 
-    public MediaKind getKind() {
-        return kind;
-    }
+	/**
+	 * Returns the media kind.
+	 *
+	 * @return the kind
+	 */
+	public MediaKind getKind() {
+		return kind;
+	}
 
-    public void setKind(MediaKind kind) {
-        this.kind = kind;
-    }
+	/**
+	 * Sets the media kind.
+	 *
+	 * @param kind the kind to set
+	 */
+	public void setKind(MediaKind kind) {
+		this.kind = kind;
+	}
 }

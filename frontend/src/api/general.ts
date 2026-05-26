@@ -2,9 +2,11 @@ import axios from "axios";
 import config from "@/functions/config.ts";
 
 /**
- * Check if the app is alive
+ * Checks whether the backend API is reachable.
+ *
+ * @returns `true` when the server responds with HTTP 200, `false` otherwise
  */
-export const checkAppAlive = async (): Promise<boolean>  => {
+export const checkAppAlive = async (): Promise<boolean> => {
     try {
         const response = await axios.get(config.defaultServer() + '/api/general/appAlive')
 
@@ -13,7 +15,7 @@ export const checkAppAlive = async (): Promise<boolean>  => {
         }
 
         return false
-    } catch(error: any) {
+    } catch (error: unknown) {
         return false
     }
 }

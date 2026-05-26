@@ -6,22 +6,36 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import eu.apps4net.parrotApp.configurations.Language;
 import eu.apps4net.parrotApp.services.SettingService;
 
+/**
+ * Main entry point for the ParrotApp Spring Boot application.
+ * Bootstraps the application context and initialises the actions language.
+ */
 @SpringBootApplication
 public class ParrotApp {
-    private static SettingService settingService;
 
-    public ParrotApp(SettingService settingService) {
-        ParrotApp.settingService = settingService;
-    }
+	/** Spring-managed {@link SettingService} instance, resolved at construction time. */
+	private static SettingService settingService;
 
-    public static void main(String[] args)
-    {
-        SpringApplication.run(ParrotApp.class, args);
+	/**
+	 * Constructs the application and captures the {@link SettingService} dependency
+	 * so that it can be used in the static {@link #main(String[])} method.
+	 *
+	 * @param settingService the application settings service
+	 */
+	public ParrotApp(SettingService settingService) {
+		ParrotApp.settingService = settingService;
+	}
 
-        Language.setActionsLanguage(settingService.getDefaultActionsLanguage());
+	/**
+	 * Application entry point.
+	 *
+	 * @param args command-line arguments passed to the JVM
+	 */
+	public static void main(String[] args) {
+		SpringApplication.run(ParrotApp.class, args);
 
-        System.out.println("Run app on http://localhost:9999");
+		Language.setActionsLanguage(settingService.getDefaultActionsLanguage());
 
-    }
-
+		System.out.println("Run app on http://localhost:9999");
+	}
 }

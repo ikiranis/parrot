@@ -1,46 +1,51 @@
 import axios from "axios";
 import config from "@/functions/config.ts";
+import type { Setting } from "@/types";
 
 /**
- * Get all settings from database
+ * Retrieves all settings from the database.
+ *
+ * @returns array of {@link Setting} records
  */
-export const getSettings = async () => {
+export const getSettings = async (): Promise<Setting[] | undefined> => {
     try {
-        const response = await axios.get(config.defaultServer() + '/api/setting/all')
+        const response = await axios.get(config.defaultServer() + '/api/settings/all')
 
         if (response.status === 200) {
             return response.data
         }
-    } catch(error: any) {
+    } catch (error: unknown) {
         throw error
     }
 }
 
 /**
- * Get a setting from database
+ * Retrieves a single setting by its identifier.
  *
- * @param id
+ * @param id the setting identifier
+ * @returns the matching {@link Setting}
  */
-export const getSetting = async (id: string) => {
+export const getSetting = async (id: string): Promise<Setting | undefined> => {
     try {
-        const response = await axios.get(config.defaultServer() + `/api/setting/${id}`)
+        const response = await axios.get(config.defaultServer() + `/api/settings/${id}`)
 
         if (response.status === 200) {
             return response.data
         }
-    } catch(error: any) {
+    } catch (error: unknown) {
         throw error
     }
 }
 
 /**
- * Update a setting in database
+ * Updates an existing setting in the database.
  *
- * @param data
+ * @param data object containing the setting id, name, and new value
+ * @returns the Axios response
  */
-export const updateSetting = async (data: Object) => {
+export const updateSetting = async (data: Record<string, unknown>) => {
     try {
-        const response = await axios.put(config.defaultServer() + '/api/setting', data, {
+        const response = await axios.put(config.defaultServer() + '/api/settings', data, {
             headers: {
                 'Content-Type': 'application/json'
             }
@@ -49,7 +54,7 @@ export const updateSetting = async (data: Object) => {
         if (response.status === 200) {
             return response
         }
-    } catch(error: any) {
+    } catch (error: unknown) {
         throw error
     }
 }

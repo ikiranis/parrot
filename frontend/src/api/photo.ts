@@ -1,41 +1,44 @@
 import axios from "axios";
 import config from "@/functions/config.ts";
+import type { ScanResult } from "@/types";
 
 /**
- * Trigger a photo scan for the given server-side folder path.
+ * Triggers a photo scan for the given server-side folder path.
  *
  * @param folderPath absolute path on the server to scan
+ * @returns a {@link ScanResult} describing what was added, skipped, or errored
  */
-export const scanFolder = async (folderPath: string) => {
+export const scanFolder = async (folderPath: string): Promise<ScanResult | undefined> => {
     try {
-        const response = await axios.post(config.defaultServer() + '/api/photo/scan', { folderPath }, {
+        const response = await axios.post(config.defaultServer() + '/api/photos/scan', { folderPath }, {
             headers: { 'Content-Type': 'application/json' }
         })
 
         if (response.status === 200) {
             return response.data
         }
-    } catch (error: any) {
+    } catch (error: unknown) {
         throw error
     }
 }
 
 /**
- * Get a paginated list of photos from the database.
+ * Retrieves a paginated list of photos from the database.
  *
  * @param page page index (0-based)
- * @param size page size
+ * @param size number of results per page
+ * @returns a Spring {@code Page} wrapper containing the photo entries
  */
 export const getPhotos = async (page: number = 0, size: number = 20) => {
     try {
-        const response = await axios.get(config.defaultServer() + '/api/photo/all', {
+        const response = await axios.get(config.defaultServer() + '/api/photos/all', {
             params: { page, size }
         })
 
         if (response.status === 200) {
             return response.data
         }
-    } catch (error: any) {
+    } catch (error: unknown) {
         throw error
     }
 }

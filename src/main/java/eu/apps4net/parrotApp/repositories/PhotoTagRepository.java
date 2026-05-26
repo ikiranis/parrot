@@ -8,8 +8,17 @@ import eu.apps4net.parrotApp.models.PhotoTag;
 
 import java.util.Optional;
 
+/**
+ * Spring Data JPA repository for {@link PhotoTag} entities.
+ */
 @Repository
 public interface PhotoTagRepository extends JpaRepository<PhotoTag, Long> {
 
+	/**
+	 * Finds the photo tag associated with the given media file.
+	 *
+	 * @param mediaFile the media file
+	 * @return an {@link Optional} containing the matching {@link PhotoTag}, or empty if none
+	 */
 	Optional<PhotoTag> findByMediaFile(MediaFile mediaFile);
 }

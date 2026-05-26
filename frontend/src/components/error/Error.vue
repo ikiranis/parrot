@@ -5,7 +5,7 @@ import {computed, watch} from "vue";
 
 const errorData = computed(() => errorStore.get()); // Using a ref for reactivity
 
-let interval: any = null; // Declare interval variable
+let interval: ReturnType<typeof setInterval> | undefined = undefined; // Declare interval variable
 
 const closeAlert = () => {
     errorStore.set(false, '', 0)

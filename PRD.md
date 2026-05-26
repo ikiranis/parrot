@@ -80,7 +80,7 @@ The project will provide an API to access my media library, and a frontend inter
 
 ### 5.1 General
 
-- **Indentation:** 4 spaces (no tabs) for all files (Java, TypeScript, Vue, HTML, CSS/SCSS)
+- **Indentation:** Tabs for all files (Java, TypeScript, Vue, HTML, CSS/SCSS); tab width = 4 spaces
 - **Line endings:** LF (Unix-style)
 - **Max line length:** 120 characters
 - **Encoding:** UTF-8
@@ -117,7 +117,7 @@ The project will provide an API to access my media library, and a frontend inter
 
 ### 5.4 Styling (SCSS)
 
-- **Indentation:** 4 spaces
+- **Indentation:** Tabs (4-space width)
 - **Naming:** BEM methodology for class names (`block__element--modifier`)
 - **Scoped styles:** Use `<style scoped>` in Vue SFCs unless global styles are intentionally needed
 

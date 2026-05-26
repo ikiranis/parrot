@@ -12,9 +12,19 @@
 
 import {ref, customRef} from 'vue'
 
-const debounce = (fn: any, delay: number = 0, immediate: boolean = false) => {
-    let timeout: any
-    return (...args: any[]) => {
+type AnyFn = (...args: unknown[]) => unknown
+
+/**
+ * Returns a debounced version of `fn` that only fires after `delay` ms of inactivity.
+ *
+ * @param fn        function to debounce
+ * @param delay     debounce window in milliseconds
+ * @param immediate fire immediately on the first call within the window
+ * @returns the debounced function
+ */
+const debounce = (fn: AnyFn, delay: number = 0, immediate: boolean = false) => {
+    let timeout: ReturnType<typeof setTimeout> | undefined
+    return (...args: unknown[]) => {
         if (immediate && !timeout) fn(...args)
         clearTimeout(timeout)
 
@@ -24,7 +34,15 @@ const debounce = (fn: any, delay: number = 0, immediate: boolean = false) => {
     }
 }
 
-const useDebouncedRef = (initialValue: any, delay: any, immediate: boolean) => {
+/**
+ * Creates a Vue `customRef` whose setter is debounced.
+ *
+ * @param initialValue the starting value for the ref
+ * @param delay        debounce window in milliseconds
+ * @param immediate    fire immediately on the leading edge of the window
+ * @returns a Vue ref that debounces its setter
+ */
+const useDebouncedRef = <T>(initialValue: T, delay: number, immediate: boolean) => {
     const state = ref(initialValue)
     return customRef((track, trigger) => ({
         get() {
@@ -32,8 +50,8 @@ const useDebouncedRef = (initialValue: any, delay: any, immediate: boolean) => {
             return state.value
         },
         set: debounce(
-            (value: any) => {
-                state.value = value
+            (value: unknown) => {
+                state.value = value as T
                 trigger()
             },
             delay,

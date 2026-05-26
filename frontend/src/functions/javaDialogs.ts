@@ -7,6 +7,12 @@ declare global {
     }
 }
 
+/** Minimal interface for an Axios response used by {@link saveDialog}. */
+interface BlobResponse {
+    data: BlobPart;
+    headers: Record<string, string>;
+}
+
 /**
  * Use javaFX confirm or browser confirm
  *
@@ -23,10 +29,10 @@ export const confirmDialog = (message: string): boolean => {
 /**
  * Use javaFX save dialog or browser save dialog, to download a file
  *
- * @param response
- * @param filename
+ * @param response an Axios-like response containing binary data
+ * @param filename the suggested download file name
  */
-export const saveDialog = (response: any, filename: string) => {
+export const saveDialog = (response: BlobResponse, filename: string) => {
     // Trigger a click event on the anchor to initiate the download
     if (typeof window.appController !== "undefined") { // When on javaFX
         // Create a Blob from the binary data

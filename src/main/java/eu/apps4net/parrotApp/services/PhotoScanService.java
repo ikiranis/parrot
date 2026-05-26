@@ -20,16 +20,31 @@ import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
 
+/**
+ * Service that recursively scans a server-side directory for image files and
+ * persists new entries as {@link MediaFile} + {@link PhotoTag} pairs.
+ * Already-indexed files are skipped using a path+filename lookup.
+ */
 @Service
 public class PhotoScanService {
 
+	/** Supported image file extensions (lower-case, without the leading dot). */
 	private static final Set<String> IMAGE_EXTENSIONS = Set.of(
 			"jpg", "jpeg", "png", "gif", "bmp", "webp", "tiff", "tif"
 	);
 
+	/** Repository for querying and persisting media file records. */
 	private final MediaFileRepository mediaFileRepository;
+
+	/** Repository for querying and persisting photo tag records. */
 	private final PhotoTagRepository photoTagRepository;
 
+	/**
+	 * Constructs a new {@code PhotoScanService}.
+	 *
+	 * @param mediaFileRepository repository for media file persistence
+	 * @param photoTagRepository  repository for photo tag persistence
+	 */
 	public PhotoScanService(MediaFileRepository mediaFileRepository,
 							PhotoTagRepository photoTagRepository) {
 		this.mediaFileRepository = mediaFileRepository;
