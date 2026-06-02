@@ -2,7 +2,7 @@
 import { ref, Ref, onMounted } from "vue"
 import { language } from "@/functions/languageStore.ts"
 import { errorStore } from "@/components/error/errorStore.ts"
-import { scanFolder, getPhotos } from "@/api/photo.ts"
+import { scanFolder, getPhotos, clearLibrary } from "@/api/photo.ts"
 import { ScanResult, MediaFile } from "@/types"
 import Error from "@/components/error/Error.vue"
 import Loading from "@/components/utilities/Loading.vue"
@@ -10,6 +10,7 @@ import Loading from "@/components/utilities/Loading.vue"
 const folderPath = ref("")
 const scanning = ref(false)
 const loadingPhotos = ref(false)
+const clearing = ref(false)
 const scanResult: Ref<ScanResult | null> = ref(null)
 const photos: Ref<MediaFile[]> = ref([])
 const totalElements = ref(0)
@@ -57,11 +58,41 @@ const loadPhotos = async (page: number = 0) => {
 }
 
 const totalPages = () => Math.ceil(totalElements.value / PAGE_SIZE)
+
+const onClearLibrary = async () => {
+    if (!confirm(language.get("Are you sure you want to delete all photos from the library?"))) return
+
+    clearing.value = true
+
+    await clearLibrary()
+        .then(() => {
+            photos.value = []
+            totalElements.value = 0
+            currentPage.value = 0
+            scanResult.value = null
+        })
+        .catch((error: unknown) => {
+            const err = error as { response?: { data?: { message?: string; status?: number }; }; message?: string }
+            errorStore.set(true, err.response?.data?.message ?? err.message ?? '', err.response?.data?.status ?? 500)
+        })
+
+    clearing.value = false
+}
 </script>
 
 <template>
     <div class="container-fluid mt-4">
-        <h4 class="mb-3">{{ language.get("Photos") }}</h4>
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h4 class="mb-0">{{ language.get("Photos") }}</h4>
+            <button
+                class="btn btn-outline-danger btn-sm"
+                :disabled="clearing"
+                @click="onClearLibrary"
+            >
+                <span v-if="clearing" class="spinner-border spinner-border-sm me-1" role="status"></span>
+                {{ language.get("Clean Library") }}
+            </button>
+        </div>
 
         <!-- Folder scan form -->
         <div class="card mb-4">

@@ -21,4 +21,11 @@ public interface PhotoTagRepository extends JpaRepository<PhotoTag, Long> {
 	 * @return an {@link Optional} containing the matching {@link PhotoTag}, or empty if none
 	 */
 	Optional<PhotoTag> findByMediaFile(MediaFile mediaFile);
+
+	/**
+	 * Deletes all photo tags whose associated media file has the given kind.
+	 *
+	 * @param kind the media kind to match on the associated {@link MediaFile}
+	 */
+	void deleteAllByMediaFileKind(eu.apps4net.parrotApp.models.MediaKind kind);
 }

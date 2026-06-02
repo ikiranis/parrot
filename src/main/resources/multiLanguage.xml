@@ -116,6 +116,16 @@
         <language code="el">Δεν βρέθηκαν φωτογραφίες. Σαρώστε ένα φάκελο για εισαγωγή.</language>
     </entry>
 
+    <entry id="Clean Library">
+        <language code="en">Clean Library</language>
+        <language code="el">Καθαρισμός Βιβλιοθήκης</language>
+    </entry>
+
+    <entry id="Are you sure you want to delete all photos from the library?">
+        <language code="en">Are you sure you want to delete all photos from the library?</language>
+        <language code="el">Είστε σίγουρος ότι θέλετε να διαγράψετε όλες τις φωτογραφίες από τη βιβλιοθήκη;</language>
+    </entry>
+
     <entry id="Edit Setting">
         <language code="en">Edit Setting</language>
         <language code="el">Επεξεργασία Ρύθμισης</language>

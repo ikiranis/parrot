@@ -33,4 +33,11 @@ public interface MediaFileRepository extends JpaRepository<MediaFile, Long> {
 	 * @return a {@link Page} of matching {@link MediaFile} records
 	 */
 	Page<MediaFile> findByKind(MediaKind kind, Pageable pageable);
+
+	/**
+	 * Deletes all media files of the given kind.
+	 *
+	 * @param kind the media kind to delete
+	 */
+	void deleteAllByKind(MediaKind kind);
 }

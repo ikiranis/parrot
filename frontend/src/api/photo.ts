@@ -42,3 +42,16 @@ export const getPhotos = async (page: number = 0, size: number = 20) => {
         throw error
     }
 }
+
+/**
+ * Deletes all photo records from the database. The physical files are not affected.
+ *
+ * @returns void on success
+ */
+export const clearLibrary = async (): Promise<void> => {
+    try {
+        await axios.delete(config.defaultServer() + '/api/photos/all')
+    } catch (error: unknown) {
+        throw error
+    }
+}
