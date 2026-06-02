@@ -30,8 +30,10 @@ public interface MediaTagScanner {
 	 * Scans the file at {@code filePath} and persists the media-type-specific
 	 * metadata tags for the given {@link MediaFile}.
 	 *
-	 * @param mediaFile the already-persisted media file record
-	 * @param filePath  the path to the actual file on disk
+	 * @param mediaFile  the already-persisted media file record
+	 * @param filePath   the path to the actual file on disk
+	 * @param rootPath   the root folder that was originally passed to the scan operation;
+	 *                   used to determine whether the file resides directly in the root
 	 */
-	void scanTags(MediaFile mediaFile, Path filePath);
+	void scanTags(MediaFile mediaFile, Path filePath, Path rootPath);
 }

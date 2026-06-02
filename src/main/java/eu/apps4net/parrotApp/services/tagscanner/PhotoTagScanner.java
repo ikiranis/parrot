@@ -46,19 +46,24 @@ public class PhotoTagScanner implements MediaTagScanner {
 
 	/**
 	 * Scans the image file at {@code filePath} and persists a {@link PhotoTag} containing
-	 * the display name, file size, MIME type, and pixel dimensions.
+	 * the display name, album, file size, MIME type, and pixel dimensions.
+	 *
+	 * <p>The album is set to the name of the immediate parent directory of the file.
+	 * If the file resides directly in {@code rootPath}, the album is left {@code null}.</p>
 	 *
 	 * @param mediaFile the already-persisted media file record
 	 * @param filePath  the path to the image file on disk
+	 * @param rootPath  the root scan folder; used to suppress the album for top-level files
 	 */
 	@Override
-	public void scanTags(MediaFile mediaFile, Path filePath) {
+	public void scanTags(MediaFile mediaFile, Path filePath, Path rootPath) {
 		File file = filePath.toFile();
 		String filename = filePath.getFileName().toString();
 
 		PhotoTag photoTag = new PhotoTag();
 		photoTag.setMediaFile(mediaFile);
 		photoTag.setName(stripExtension(filename));
+		photoTag.setAlbum(resolveAlbum(filePath, rootPath));
 		photoTag.setFilesize(file.length());
 		photoTag.setMimeType(resolveMimeType(filename));
 
@@ -85,6 +90,22 @@ public class PhotoTagScanner implements MediaTagScanner {
 		} catch (IOException ignored) {
 			// Dimensions are optional — skip on failure
 		}
+	}
+
+	/**
+	 * Resolves the album name for a photo from its parent directory.
+	 * Returns {@code null} if the photo is directly inside {@code rootPath}.
+	 *
+	 * @param filePath the full path to the photo file
+	 * @param rootPath the root scan folder
+	 * @return the parent folder name, or {@code null} if the photo is in the root
+	 */
+	private String resolveAlbum(Path filePath, Path rootPath) {
+		Path parent = filePath.getParent();
+		if (parent == null || parent.equals(rootPath)) {
+			return null;
+		}
+		return parent.getFileName().toString();
 	}
 
 	/**

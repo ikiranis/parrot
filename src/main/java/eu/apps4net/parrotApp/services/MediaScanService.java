@@ -118,7 +118,7 @@ public class MediaScanService {
 			MediaTagScanner scanner = tagScanners.get(entry.mediaFile().getKind());
 			if (scanner != null) {
 				try {
-					scanner.scanTags(entry.mediaFile(), entry.filePath());
+					scanner.scanTags(entry.mediaFile(), entry.filePath(), root);
 				} catch (Exception e) {
 					errors.incrementAndGet();
 				}
