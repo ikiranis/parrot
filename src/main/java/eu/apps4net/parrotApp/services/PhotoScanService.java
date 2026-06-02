@@ -87,6 +87,15 @@ public class PhotoScanService {
 				", Errors: " + errors.get());
 	}
 
+	/**
+	 * Processes a single image file: skips it if already indexed, otherwise persists
+	 * a new {@link MediaFile} and {@link PhotoTag} record.
+	 *
+	 * @param filePath path to the image file to process
+	 * @param added    counter incremented when a file is successfully persisted
+	 * @param skipped  counter incremented when a file is already in the database
+	 * @param errors   counter incremented when an exception occurs during processing
+	 */
 	private void processFile(Path filePath, AtomicInteger added, AtomicInteger skipped, AtomicInteger errors) {
 		String filename = filePath.getFileName().toString();
 		String parentPath = filePath.getParent() != null
@@ -120,6 +129,14 @@ public class PhotoScanService {
 		}
 	}
 
+	/**
+	 * Reads the pixel width and height of an image file and sets them on the given
+	 * {@link PhotoTag}. Silently ignores any {@link IOException} as dimensions are
+	 * considered optional metadata.
+	 *
+	 * @param file     the image file to read
+	 * @param photoTag the tag whose width and height will be populated
+	 */
 	private void readImageDimensions(File file, PhotoTag photoTag) {
 		try {
 			BufferedImage image = ImageIO.read(file);
@@ -132,6 +149,13 @@ public class PhotoScanService {
 		}
 	}
 
+	/**
+	 * Returns {@code true} if the given path has a file extension that belongs to
+	 * {@link #IMAGE_EXTENSIONS}.
+	 *
+	 * @param path the file path to inspect
+	 * @return {@code true} if the file is a recognised image type, {@code false} otherwise
+	 */
 	private boolean isImageFile(Path path) {
 		String name = path.getFileName().toString().toLowerCase();
 		int dot = name.lastIndexOf('.');
@@ -139,11 +163,25 @@ public class PhotoScanService {
 		return IMAGE_EXTENSIONS.contains(name.substring(dot + 1));
 	}
 
+	/**
+	 * Removes the file extension from a filename (everything from the last {@code .}
+	 * onwards). Returns the original string unchanged if no dot is found.
+	 *
+	 * @param filename the filename to process
+	 * @return the filename without its extension
+	 */
 	private String stripExtension(String filename) {
 		int dot = filename.lastIndexOf('.');
 		return dot > 0 ? filename.substring(0, dot) : filename;
 	}
 
+	/**
+	 * Resolves the MIME type for an image file based on its extension.
+	 * Falls back to {@code image/*} for unrecognised extensions.
+	 *
+	 * @param filename the filename whose extension is used for MIME-type resolution
+	 * @return the MIME type string, e.g. {@code "image/jpeg"}
+	 */
 	private String resolveMimeType(String filename) {
 		String ext = filename.toLowerCase();
 		if (ext.endsWith(".jpg") || ext.endsWith(".jpeg")) return "image/jpeg";
