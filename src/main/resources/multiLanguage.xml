@@ -141,4 +141,74 @@
         <language code="el">Δεν βρέθηκαν ρυθμίσεις</language>
     </entry>
 
+    <entry id="Loading...">
+        <language code="en">Loading...</language>
+        <language code="el">Φόρτωση...</language>
+    </entry>
+
+    <entry id="Close">
+        <language code="en">Close</language>
+        <language code="el">Κλείσιμο</language>
+    </entry>
+
+    <entry id="ID">
+        <language code="en">ID</language>
+        <language code="el">ID</language>
+    </entry>
+
+    <entry id="Description">
+        <language code="en">Description</language>
+        <language code="el">Περιγραφή</language>
+    </entry>
+
+    <entry id="Album">
+        <language code="en">Album</language>
+        <language code="el">Άλμπουμ</language>
+    </entry>
+
+    <entry id="Dimensions">
+        <language code="en">Dimensions</language>
+        <language code="el">Διαστάσεις</language>
+    </entry>
+
+    <entry id="File Size">
+        <language code="en">File Size</language>
+        <language code="el">Μέγεθος αρχείου</language>
+    </entry>
+
+    <entry id="MIME Type">
+        <language code="en">MIME Type</language>
+        <language code="el">Τύπος MIME</language>
+    </entry>
+
+    <entry id="Date Taken">
+        <language code="en">Date Taken</language>
+        <language code="el">Ημερομηνία λήψης</language>
+    </entry>
+
+    <entry id="Camera">
+        <language code="en">Camera</language>
+        <language code="el">Κάμερα</language>
+    </entry>
+
+    <entry id="GPS">
+        <language code="en">GPS</language>
+        <language code="el">GPS</language>
+    </entry>
+
+    <entry id="Rating">
+        <language code="en">Rating</language>
+        <language code="el">Βαθμολογία</language>
+    </entry>
+
+    <entry id="Views">
+        <language code="en">Views</language>
+        <language code="el">Προβολές</language>
+    </entry>
+
+    <entry id="Hash">
+        <language code="en">Hash</language>
+        <language code="el">Hash</language>
+    </entry>
+
 </root>
