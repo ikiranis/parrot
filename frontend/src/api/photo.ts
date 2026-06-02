@@ -1,6 +1,6 @@
 import axios from "axios";
 import config from "@/functions/config.ts";
-import type { ScanResult } from "@/types";
+import type { ScanResult, PhotoDetail } from "@/types";
 
 /**
  * Triggers a photo scan for the given server-side folder path.
@@ -55,3 +55,27 @@ export const clearLibrary = async (): Promise<void> => {
         throw error
     }
 }
+
+/**
+ * Retrieves the full detail of a single photo, including its metadata tags.
+ *
+ * @param id the primary key of the media file
+ * @returns a {@link PhotoDetail} combining MediaFile and PhotoTag fields
+ */
+export const getPhotoById = async (id: number): Promise<PhotoDetail> => {
+    try {
+        const response = await axios.get(config.defaultServer() + `/api/photos/${id}`)
+        return response.data
+    } catch (error: unknown) {
+        throw error
+    }
+}
+
+/**
+ * Returns the URL that serves the raw image bytes for the given photo id.
+ *
+ * @param id the primary key of the media file
+ * @returns the image endpoint URL string
+ */
+export const getPhotoImageUrl = (id: number): string =>
+    config.defaultServer() + `/api/photos/${id}/image`

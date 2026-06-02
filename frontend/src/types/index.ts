@@ -48,6 +48,31 @@ export type MediaFile = {
 	kind: string
 }
 
+/** Combined photo detail including MediaFile fields and optional PhotoTag metadata. */
+export type PhotoDetail = {
+	id: number
+	path: string
+	filename: string
+	hash: string | null
+	kind: string
+	name: string | null
+	description: string | null
+	album: string | null
+	filesize: number | null
+	width: number | null
+	height: number | null
+	viewCount: number | null
+	rating: number | null
+	dateTaken: string | null
+	latitude: number | null
+	longitude: number | null
+	cameraMake: string | null
+	cameraModel: string | null
+	mimeType: string | null
+	dateCreated: string | null
+	dateUpdated: string | null
+}
+
 /** An application configuration setting as returned by the API. */
 export type Setting = {
 	id: number

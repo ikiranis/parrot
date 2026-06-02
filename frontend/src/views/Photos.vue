@@ -6,6 +6,7 @@ import { scanFolder, getPhotos, clearLibrary } from "@/api/photo.ts"
 import { ScanResult, MediaFile } from "@/types"
 import Error from "@/components/error/Error.vue"
 import Loading from "@/components/utilities/Loading.vue"
+import PhotoDetail from "@/components/PhotoDetail.vue"
 
 const folderPath = ref("")
 const scanning = ref(false)
@@ -16,6 +17,7 @@ const photos: Ref<MediaFile[]> = ref([])
 const totalElements = ref(0)
 const currentPage = ref(0)
 const PAGE_SIZE = 20
+const selectedPhotoId: Ref<number | null> = ref(null)
 
 onMounted(() => {
     loadPhotos()
@@ -149,7 +151,12 @@ const onClearLibrary = async () => {
                 <tbody>
                     <tr v-for="photo in photos" :key="photo.id">
                         <td class="align-middle">{{ photo.id }}</td>
-                        <td class="align-middle">{{ photo.filename }}</td>
+                        <td class="align-middle">
+                            <button
+                                class="btn btn-link p-0 text-start text-decoration-none"
+                                @click="selectedPhotoId = photo.id"
+                            >{{ photo.filename }}</button>
+                        </td>
                         <td class="align-middle text-muted small">{{ photo.path }}</td>
                     </tr>
                 </tbody>
@@ -185,5 +192,7 @@ const onClearLibrary = async () => {
         </div>
 
         <Error />
+
+        <PhotoDetail :photoId="selectedPhotoId" @close="selectedPhotoId = null" />
     </div>
 </template>

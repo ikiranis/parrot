@@ -1,20 +1,29 @@
 package eu.apps4net.parrotApp.controllers;
 
+import org.springframework.core.io.FileSystemResource;
+import org.springframework.core.io.Resource;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
+import eu.apps4net.parrotApp.exceptions.NotFoundException;
 import eu.apps4net.parrotApp.exceptions.ProcessingErrorException;
 import eu.apps4net.parrotApp.models.MediaFile;
 import eu.apps4net.parrotApp.models.MediaKind;
+import eu.apps4net.parrotApp.models.PhotoDetailDTO;
 import eu.apps4net.parrotApp.models.ScanResult;
 import eu.apps4net.parrotApp.repositories.MediaFileRepository;
 import eu.apps4net.parrotApp.repositories.PhotoTagRepository;
 import eu.apps4net.parrotApp.services.MediaScanService;
 
+import java.io.File;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Map;
 
 /**
@@ -80,6 +89,55 @@ public class PhotoController {
 			@RequestParam(defaultValue = "20") int size) {
 		return mediaFileRepository.findByKind(MediaKind.IMAGE,
 				PageRequest.of(page, size, Sort.by("id").descending()));
+	}
+
+	/**
+	 * Returns the detail view for a single photo, combining its {@link MediaFile}
+	 * record with the associated {@link eu.apps4net.parrotApp.models.PhotoTag} if one exists.
+	 *
+	 * @param id the primary key of the media file
+	 * @return a {@link PhotoDetailDTO} with all available metadata
+	 * @throws NotFoundException if no media file with the given id exists
+	 */
+	@GetMapping("{id}")
+	public PhotoDetailDTO getPhotoDetail(@PathVariable Long id) {
+		MediaFile mediaFile = mediaFileRepository.findById(id)
+				.orElseThrow(() -> new NotFoundException("Photo not found: " + id));
+		return PhotoDetailDTO.from(mediaFile, photoTagRepository.findByMediaFile(mediaFile));
+	}
+
+	/**
+	 * Serves the raw image bytes for the specified photo.
+	 * The file is read from the path stored in the {@link MediaFile} record.
+	 *
+	 * @param id the primary key of the media file
+	 * @return the image as a binary response with the appropriate content type
+	 * @throws NotFoundException if the media file record or the physical file does not exist
+	 */
+	@GetMapping("{id}/image")
+	public ResponseEntity<Resource> getPhotoImage(@PathVariable Long id) {
+		MediaFile mediaFile = mediaFileRepository.findById(id)
+				.orElseThrow(() -> new NotFoundException("Photo not found: " + id));
+
+		Path filePath = Paths.get(mediaFile.getPath(), mediaFile.getFilename());
+		File file = filePath.toFile();
+
+		if (!file.exists() || !file.isFile()) {
+			throw new NotFoundException("File not found on disk: " + filePath);
+		}
+
+		String contentType;
+		try {
+			String probed = Files.probeContentType(filePath);
+			contentType = (probed != null) ? probed : "application/octet-stream";
+		} catch (Exception e) {
+			contentType = "application/octet-stream";
+		}
+
+		Resource resource = new FileSystemResource(file);
+		return ResponseEntity.ok()
+				.contentType(MediaType.parseMediaType(contentType))
+				.body(resource);
 	}
 
 	/**
