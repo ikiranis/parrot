@@ -2,7 +2,7 @@ package eu.apps4net.parrotApp.models;
 
 /**
  * Immutable summary of a folder-scan operation performed by
- * {@link eu.apps4net.parrotApp.services.PhotoScanService}.
+ * {@link eu.apps4net.parrotApp.services.MediaScanService}.
  *
  * @param added   number of new media files added to the database
  * @param skipped number of files already present and therefore skipped

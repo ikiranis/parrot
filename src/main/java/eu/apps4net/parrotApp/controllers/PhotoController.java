@@ -10,7 +10,7 @@ import eu.apps4net.parrotApp.models.MediaFile;
 import eu.apps4net.parrotApp.models.MediaKind;
 import eu.apps4net.parrotApp.models.ScanResult;
 import eu.apps4net.parrotApp.repositories.MediaFileRepository;
-import eu.apps4net.parrotApp.services.PhotoScanService;
+import eu.apps4net.parrotApp.services.MediaScanService;
 
 import java.util.Map;
 
@@ -22,8 +22,8 @@ import java.util.Map;
 @RequestMapping("api/photos")
 public class PhotoController {
 
-	/** Service responsible for scanning directories for image files. */
-	private final PhotoScanService photoScanService;
+	/** Service responsible for scanning directories for media files. */
+	private final MediaScanService mediaScanService;
 
 	/** Repository for querying and persisting media file records. */
 	private final MediaFileRepository mediaFileRepository;
@@ -31,12 +31,12 @@ public class PhotoController {
 	/**
 	 * Constructs a new {@code PhotoController}.
 	 *
-	 * @param photoScanService      the photo scanning service
-	 * @param mediaFileRepository   the media file repository
+	 * @param mediaScanService    the media scanning service
+	 * @param mediaFileRepository the media file repository
 	 */
-	public PhotoController(PhotoScanService photoScanService,
+	public PhotoController(MediaScanService mediaScanService,
 						   MediaFileRepository mediaFileRepository) {
-		this.photoScanService = photoScanService;
+		this.mediaScanService = mediaScanService;
 		this.mediaFileRepository = mediaFileRepository;
 	}
 
@@ -55,7 +55,7 @@ public class PhotoController {
 			throw new ProcessingErrorException("folderPath must not be empty");
 		}
 
-		return photoScanService.scanFolder(folderPath.trim());
+		return mediaScanService.scanFolder(folderPath.trim());
 	}
 
 	/**
