@@ -102,27 +102,29 @@ public class MediaScanService {
 		Path root = Paths.get(folderPath);
 
 		if (!Files.exists(root)) {
-			return new ScanResult(0, 0, 0, "Folder does not exist: " + folderPath);
+			return new ScanResult(0, 0, 0, 0, 0, "Folder does not exist: " + folderPath);
 		}
 
 		if (!Files.isDirectory(root)) {
-			return new ScanResult(0, 0, 0, "Path is not a directory: " + folderPath);
+			return new ScanResult(0, 0, 0, 0, 0, "Path is not a directory: " + folderPath);
 		}
 
 		AtomicInteger added = new AtomicInteger(0);
 		AtomicInteger skipped = new AtomicInteger(0);
 		AtomicInteger errors = new AtomicInteger(0);
+		AtomicInteger foldersScanned = new AtomicInteger(0);
+		AtomicInteger foldersSkipped = new AtomicInteger(0);
 
 		List<FileScanEntry> savedEntries = new ArrayList<>();
 
-		// Phase 1 — collect leaf directories (no subdirectory children)
+		// Phase 1 — collect directories that contain at least one direct regular file
 		List<Path> leafDirs = new ArrayList<>();
 		try (Stream<Path> stream = Files.walk(root)) {
 			stream.filter(Files::isDirectory)
-					.filter(this::isLeafDirectory)
+					.filter(this::containsFiles)
 					.forEach(leafDirs::add);
 		} catch (IOException e) {
-			return new ScanResult(0, 0, 0, "Error walking directory: " + e.getMessage());
+			return new ScanResult(0, 0, 0, 0, 0, "Error walking directory: " + e.getMessage());
 		}
 
 		// Phase 2 — for each changed leaf directory, scan its direct files
@@ -135,8 +137,10 @@ public class MediaScanService {
 				continue;
 			}
 			if (!hasChanges) {
+				foldersSkipped.incrementAndGet();
 				continue;
 			}
+			foldersScanned.incrementAndGet();
 			try (Stream<Path> files = Files.list(leafDir)) {
 				files.filter(Files::isRegularFile)
 						.forEach(filePath -> scanMediaFile(filePath, savedEntries, added, skipped, errors));
@@ -158,21 +162,24 @@ public class MediaScanService {
 		}
 
 		return new ScanResult(added.get(), skipped.get(), errors.get(),
+				foldersScanned.get(), foldersSkipped.get(),
 				"Scan complete. Added: " + added.get() +
 				", Skipped: " + skipped.get() +
-				", Errors: " + errors.get());
+				", Errors: " + errors.get() +
+				", Folders scanned: " + foldersScanned.get() +
+				", Folders skipped: " + foldersSkipped.get());
 	}
 
 	/**
-	 * Returns {@code true} when {@code dir} contains no subdirectory entries,
-	 * making it a leaf directory whose files should be directly scanned.
+	 * Returns {@code true} when {@code dir} contains at least one direct regular file,
+	 * meaning its files should be scanned regardless of whether it also has subdirectories.
 	 *
 	 * @param dir the directory to test
-	 * @return {@code true} if the directory has no child directories
+	 * @return {@code true} if the directory has at least one direct regular file
 	 */
-	private boolean isLeafDirectory(Path dir) {
+	private boolean containsFiles(Path dir) {
 		try (Stream<Path> children = Files.list(dir)) {
-			return children.noneMatch(Files::isDirectory);
+			return children.anyMatch(Files::isRegularFile);
 		} catch (IOException e) {
 			return false;
 		}

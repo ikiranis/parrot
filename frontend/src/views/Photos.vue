@@ -127,6 +127,8 @@ const onClearLibrary = async () => {
                 <li>{{ language.get("Added") }}: {{ scanResult.added }}</li>
                 <li>{{ language.get("Skipped") }}: {{ scanResult.skipped }}</li>
                 <li>{{ language.get("Errors") }}: {{ scanResult.errors }}</li>
+                <li>{{ language.get("Folders scanned") }}: {{ scanResult.foldersScanned }}</li>
+                <li>{{ language.get("Folders skipped") }}: {{ scanResult.foldersSkipped }}</li>
             </ul>
         </div>
 

@@ -236,6 +236,16 @@
         <language code="el">Δεν βρέθηκαν φάκελοι. Σαρώστε ένα φάκελο για εισαγωγή.</language>
     </entry>
 
+    <entry id="Folders scanned">
+        <language code="en">Folders scanned</language>
+        <language code="el">Φάκελοι που σαρώθηκαν</language>
+    </entry>
+
+    <entry id="Folders skipped">
+        <language code="en">Folders skipped</language>
+        <language code="el">Φάκελοι που παραλείφθηκαν</language>
+    </entry>
+
     <entry id="Are you sure you want to delete all folders from the library?">
         <language code="en">Are you sure you want to delete all folders from the library?</language>
         <language code="el">Είστε σίγουροι ότι θέλετε να διαγράψετε όλους τους φακέλους από τη βιβλιοθήκη;</language>

@@ -36,6 +36,8 @@ export type ScanResult = {
 	added: number
 	skipped: number
 	errors: number
+	foldersScanned: number
+	foldersSkipped: number
 	message: string
 }
 
