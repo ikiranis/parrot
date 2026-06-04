@@ -18,3 +18,16 @@ export const getFolders = async (): Promise<Folder[]> => {
 		throw error
 	}
 }
+
+/**
+ * Deletes all folder records from the database.
+ *
+ * @returns void on success
+ */
+export const clearFolders = async (): Promise<void> => {
+	try {
+		await axios.delete(config.defaultServer() + "/api/folders")
+	} catch (error: unknown) {
+		throw error
+	}
+}

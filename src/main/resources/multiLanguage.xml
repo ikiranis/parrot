@@ -216,4 +216,29 @@
         <language code="el">Hash</language>
     </entry>
 
+    <entry id="Refresh">
+        <language code="en">Refresh</language>
+        <language code="el">Ανανέωση</language>
+    </entry>
+
+    <entry id="Clear">
+        <language code="en">Clear</language>
+        <language code="el">Εκκαθάριση</language>
+    </entry>
+
+    <entry id="folders">
+        <language code="en">folders</language>
+        <language code="el">φάκελοι</language>
+    </entry>
+
+    <entry id="No folders found. Scan a folder to import media.">
+        <language code="en">No folders found. Scan a folder to import media.</language>
+        <language code="el">Δεν βρέθηκαν φάκελοι. Σαρώστε ένα φάκελο για εισαγωγή.</language>
+    </entry>
+
+    <entry id="Are you sure you want to delete all folders from the library?">
+        <language code="en">Are you sure you want to delete all folders from the library?</language>
+        <language code="el">Είστε σίγουροι ότι θέλετε να διαγράψετε όλους τους φακέλους από τη βιβλιοθήκη;</language>
+    </entry>
+
 </root>

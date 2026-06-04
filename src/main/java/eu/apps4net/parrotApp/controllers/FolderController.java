@@ -37,4 +37,15 @@ public class FolderController {
 	public ResponseEntity<List<Folder>> getAllFolders() {
 		return ResponseEntity.ok(folderService.getAllFolders());
 	}
+
+	/**
+	 * Deletes all folder records from the database.
+	 *
+	 * @return empty 204 No Content response
+	 */
+	@DeleteMapping
+	public ResponseEntity<Void> clearFolders() {
+		folderService.deleteAllFolders();
+		return ResponseEntity.noContent().build();
+	}
 }

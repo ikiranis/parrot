@@ -86,6 +86,13 @@ public class FolderService {
 	}
 
 	/**
+	 * Deletes all folder records from the database.
+	 */
+	public void deleteAllFolders() {
+		folderRepository.deleteAll();
+	}
+
+	/**
 	 * Checks whether the given leaf directory has changed since it was last scanned,
 	 * then creates or updates its {@link Folder} record accordingly.
 	 *
