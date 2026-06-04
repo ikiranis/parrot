@@ -6,10 +6,14 @@ import eu.apps4net.parrotApp.models.Folder;
 import eu.apps4net.parrotApp.repositories.FolderRepository;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Stream;
@@ -108,7 +112,7 @@ public class FolderService {
 			totalSize += Files.size(file);
 		}
 
-		String newHash = files.size() + ":" + totalSize;
+		String newHash = sha256(files.size() + ":" + totalSize);
 		String path = dirPath.toString();
 
 		Optional<Folder> existing = folderRepository.findByPath(path);
@@ -125,5 +129,21 @@ public class FolderService {
 
 		folderRepository.save(new Folder(path, newHash, null, LocalDateTime.now()));
 		return true;
+	}
+
+	/**
+	 * Returns the SHA-256 hex digest of the given input string.
+	 *
+	 * @param input the string to hash
+	 * @return lowercase hex-encoded SHA-256 digest
+	 */
+	private String sha256(String input) {
+		try {
+			byte[] digest = MessageDigest.getInstance("SHA-256")
+					.digest(input.getBytes(StandardCharsets.UTF_8));
+			return HexFormat.of().formatHex(digest);
+		} catch (NoSuchAlgorithmException e) {
+			throw new IllegalStateException("SHA-256 not available", e);
+		}
 	}
 }

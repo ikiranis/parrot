@@ -56,6 +56,11 @@
         <language code="el">Φωτογραφίες</language>
     </entry>
 
+    <entry id="Folders">
+        <language code="en">Folders</language>
+        <language code="el">Φάκελοι</language>
+    </entry>
+
     <entry id="Browse and scan photos">
         <language code="en">Browse and scan photos</language>
         <language code="el">Περιήγηση και σάρωση φωτογραφιών</language>

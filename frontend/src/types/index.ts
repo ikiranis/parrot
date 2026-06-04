@@ -73,6 +73,15 @@ export type PhotoDetail = {
 	dateUpdated: string | null
 }
 
+/** A scanned folder entry as returned by the API. */
+export type Folder = {
+	id: number
+	path: string
+	hash: string | null
+	thumbnail: string | null
+	lastUpdate: string | null
+}
+
 /** An application configuration setting as returned by the API. */
 export type Setting = {
 	id: number
