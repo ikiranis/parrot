@@ -23,14 +23,16 @@ import java.util.stream.Stream;
 
 /**
  * Service that recursively scans a server-side directory for media files and
- * persists them in two phases:
- * <ol>
- *   <li><b>File scan</b> – detects media files by extension, determines their
- *       {@link MediaKind}, and saves a {@link MediaFile} record for each new file.</li>
- *   <li><b>Tag scan</b> – dispatches each saved {@link MediaFile} to the appropriate
- *       {@link MediaTagScanner} implementation based on its {@link MediaKind}.</li>
- * </ol>
- * Already-indexed files are skipped using a path + filename look-up.
+ * persists them in three phases:
+ *
+ * 1. Folder scan – collects every leaf directory (a directory containing no
+ *    subdirectories) and delegates to {@link FolderService#checkAndSaveFolder} to
+ *    decide whether its files need re-scanning.  Unchanged directories are skipped.
+ * 2. File scan – for each changed leaf directory, detects media files by extension,
+ *    determines their {@link MediaKind}, and saves a {@link MediaFile} record for each
+ *    new file.  Already-indexed files are skipped.
+ * 3. Tag scan – dispatches each saved {@link MediaFile} to the appropriate
+ *    {@link MediaTagScanner} implementation based on its {@link MediaKind}.
  */
 @Service
 public class MediaScanService {
@@ -53,6 +55,9 @@ public class MediaScanService {
 	/** Repository for querying and persisting media file records. */
 	private final MediaFileRepository mediaFileRepository;
 
+	/** Service used to check and persist folder records. */
+	private final FolderService folderService;
+
 	/**
 	 * Map of {@link MediaKind} to its corresponding {@link MediaTagScanner},
 	 * built from all {@link MediaTagScanner} beans present in the application context.
@@ -65,11 +70,14 @@ public class MediaScanService {
 	 * their supported {@link MediaKind}.
 	 *
 	 * @param mediaFileRepository repository for media file persistence
+	 * @param folderService       service for folder change detection and persistence
 	 * @param scannerList         all registered {@link MediaTagScanner} implementations
 	 */
 	public MediaScanService(MediaFileRepository mediaFileRepository,
+							FolderService folderService,
 							List<MediaTagScanner> scannerList) {
 		this.mediaFileRepository = mediaFileRepository;
+		this.folderService = folderService;
 		this.tagScanners = new EnumMap<>(MediaKind.class);
 		for (MediaTagScanner scanner : scannerList) {
 			tagScanners.put(scanner.getSupportedKind(), scanner);
@@ -79,12 +87,15 @@ public class MediaScanService {
 	/**
 	 * Scans the given folder recursively for media files and saves them to the database.
 	 *
-	 * <p>Phase 1 walks the directory and persists a {@link MediaFile} for every new file
-	 * whose extension maps to a known {@link MediaKind}.
-	 * Phase 2 iterates over the saved files and invokes the matching
-	 * {@link MediaTagScanner} (if one is registered for that kind).</p>
+	 * Phase 1 collects all leaf directories (directories that contain no subdirectories)
+	 * under {@code folderPath} and asks {@link FolderService#checkAndSaveFolder} whether
+	 * each one has changed.  Unchanged directories are skipped entirely.
+	 * Phase 2 scans the direct files of every changed leaf directory and persists a
+	 * {@link MediaFile} for each new file whose extension maps to a known {@link MediaKind}.
+	 * Phase 3 iterates over the saved files and invokes the matching
+	 * {@link MediaTagScanner} (if one is registered for that kind).
 	 *
-	 * @param folderPath absolute path to the folder to scan
+	 * @param folderPath absolute path to the root folder to scan
 	 * @return {@link ScanResult} with counts of added, skipped, and errored files
 	 */
 	public ScanResult scanFolder(String folderPath) {
@@ -104,16 +115,37 @@ public class MediaScanService {
 
 		List<FileScanEntry> savedEntries = new ArrayList<>();
 
-		// Phase 1 — scan files and save MediaFile records
+		// Phase 1 — collect leaf directories (no subdirectory children)
+		List<Path> leafDirs = new ArrayList<>();
 		try (Stream<Path> stream = Files.walk(root)) {
-			stream.filter(Files::isRegularFile)
-					.forEach(filePath -> scanMediaFile(filePath, savedEntries, added, skipped, errors));
+			stream.filter(Files::isDirectory)
+					.filter(this::isLeafDirectory)
+					.forEach(leafDirs::add);
 		} catch (IOException e) {
-			return new ScanResult(added.get(), skipped.get(), errors.get(),
-					"Error walking directory: " + e.getMessage());
+			return new ScanResult(0, 0, 0, "Error walking directory: " + e.getMessage());
 		}
 
-		// Phase 2 — dispatch each saved MediaFile to the appropriate MediaTagScanner
+		// Phase 2 — for each changed leaf directory, scan its direct files
+		for (Path leafDir : leafDirs) {
+			boolean hasChanges;
+			try {
+				hasChanges = folderService.checkAndSaveFolder(leafDir);
+			} catch (IOException e) {
+				errors.incrementAndGet();
+				continue;
+			}
+			if (!hasChanges) {
+				continue;
+			}
+			try (Stream<Path> files = Files.list(leafDir)) {
+				files.filter(Files::isRegularFile)
+						.forEach(filePath -> scanMediaFile(filePath, savedEntries, added, skipped, errors));
+			} catch (IOException e) {
+				errors.incrementAndGet();
+			}
+		}
+
+		// Phase 3 — dispatch each saved MediaFile to the appropriate MediaTagScanner
 		for (FileScanEntry entry : savedEntries) {
 			MediaTagScanner scanner = tagScanners.get(entry.mediaFile().getKind());
 			if (scanner != null) {
@@ -129,6 +161,21 @@ public class MediaScanService {
 				"Scan complete. Added: " + added.get() +
 				", Skipped: " + skipped.get() +
 				", Errors: " + errors.get());
+	}
+
+	/**
+	 * Returns {@code true} when {@code dir} contains no subdirectory entries,
+	 * making it a leaf directory whose files should be directly scanned.
+	 *
+	 * @param dir the directory to test
+	 * @return {@code true} if the directory has no child directories
+	 */
+	private boolean isLeafDirectory(Path dir) {
+		try (Stream<Path> children = Files.list(dir)) {
+			return children.noneMatch(Files::isDirectory);
+		} catch (IOException e) {
+			return false;
+		}
 	}
 
 	/**

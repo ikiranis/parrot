@@ -5,8 +5,14 @@ import org.springframework.stereotype.Service;
 import eu.apps4net.parrotApp.models.Folder;
 import eu.apps4net.parrotApp.repositories.FolderRepository;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Stream;
 
 /**
  * Service layer for {@link Folder} entities.
@@ -73,5 +79,51 @@ public class FolderService {
 	 */
 	public void deleteFolder(Long id) {
 		folderRepository.deleteById(id);
+	}
+
+	/**
+	 * Checks whether the given leaf directory has changed since it was last scanned,
+	 * then creates or updates its {@link Folder} record accordingly.
+	 *
+	 * The hash is derived from the count and total byte-size of direct regular files
+	 * in the directory (formatted as {@code "count:totalBytes"}).  If no record exists
+	 * for the path, one is created and {@code true} is returned.  If a record exists
+	 * with an identical hash, no write is performed and {@code false} is returned.
+	 * Otherwise the hash and {@code lastUpdate} fields are updated and {@code true}
+	 * is returned.
+	 *
+	 * @param dirPath the leaf directory to inspect; must be an existing directory
+	 * @return {@code true} if the directory is new or its content changed and its files
+	 *         should be re-scanned; {@code false} if the directory is unchanged
+	 * @throws IOException if the directory cannot be listed or a file size cannot be read
+	 */
+	public boolean checkAndSaveFolder(Path dirPath) throws IOException {
+		List<Path> files = new ArrayList<>();
+		try (Stream<Path> listing = Files.list(dirPath)) {
+			listing.filter(Files::isRegularFile).forEach(files::add);
+		}
+
+		long totalSize = 0L;
+		for (Path file : files) {
+			totalSize += Files.size(file);
+		}
+
+		String newHash = files.size() + ":" + totalSize;
+		String path = dirPath.toString();
+
+		Optional<Folder> existing = folderRepository.findByPath(path);
+		if (existing.isPresent()) {
+			Folder folder = existing.get();
+			if (newHash.equals(folder.getHash())) {
+				return false;
+			}
+			folder.setHash(newHash);
+			folder.setLastUpdate(LocalDateTime.now());
+			folderRepository.save(folder);
+			return true;
+		}
+
+		folderRepository.save(new Folder(path, newHash, null, LocalDateTime.now()));
+		return true;
 	}
 }

@@ -16,8 +16,8 @@ import java.nio.file.Path;
 /**
  * {@link MediaTagScanner} implementation for image files ({@link MediaKind#IMAGE}).
  *
- * <p>Creates and persists a {@link PhotoTag} record containing the display name,
- * file size, MIME type, and pixel dimensions of the image.</p>
+ * Creates and persists a {@link PhotoTag} record containing the display name,
+ * file size, MIME type, and pixel dimensions of the image.
  */
 @Component
 public class PhotoTagScanner implements MediaTagScanner {
@@ -48,8 +48,8 @@ public class PhotoTagScanner implements MediaTagScanner {
 	 * Scans the image file at {@code filePath} and persists a {@link PhotoTag} containing
 	 * the display name, album, file size, MIME type, and pixel dimensions.
 	 *
-	 * <p>The album is set to the name of the immediate parent directory of the file.
-	 * If the file resides directly in {@code rootPath}, the album is left {@code null}.</p>
+	 * The album is set to the name of the immediate parent directory of the file.
+	 * If the file resides directly in {@code rootPath}, the album is left {@code null}.
 	 *
 	 * @param mediaFile the already-persisted media file record
 	 * @param filePath  the path to the image file on disk

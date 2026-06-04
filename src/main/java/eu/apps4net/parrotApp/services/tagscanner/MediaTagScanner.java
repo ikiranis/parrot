@@ -9,13 +9,13 @@ import java.nio.file.Path;
  * Strategy interface for scanning and persisting metadata tags for a specific
  * {@link MediaKind}.
  *
- * <p>Implementations are registered as Spring beans and collected by
+ * Implementations are registered as Spring beans and collected by
  * {@link eu.apps4net.parrotApp.services.MediaScanService}, which dispatches each
  * saved {@link MediaFile} to the implementation whose {@link #getSupportedKind()}
- * matches the file's kind.</p>
+ * matches the file's kind.
  *
- * <p>To support a new media type, create a Spring {@code @Component} that implements
- * this interface and returns the appropriate {@link MediaKind}.</p>
+ * To support a new media type, create a Spring {@code @Component} that implements
+ * this interface and returns the appropriate {@link MediaKind}.
  */
 public interface MediaTagScanner {
 

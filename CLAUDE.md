@@ -44,7 +44,7 @@ ParrotApp manages a personal library of photos, videos, music, etc. It exposes a
 
 ### Java
 
-- **Javadoc:** Required on all public classes, interfaces, methods, and fields (`@param`, `@return`, `@throws`); class-level Javadoc must describe purpose and responsibilities
+- **Javadoc:** Required on all public classes, interfaces, methods, and fields (`@param`, `@return`, `@throws`); class-level Javadoc must describe purpose and responsibilities; no HTML tags — use plain text and blank `*` lines for paragraph breaks, and numbered/dashed lines for lists
 - **Naming:** `PascalCase` classes, `camelCase` methods/variables, `UPPER_SNAKE_CASE` constants, `lowercase.dot.separated` packages
 - **Annotations:** Each on its own line above the declaration
 - **Braces:** Opening brace on same line (K&R style)
