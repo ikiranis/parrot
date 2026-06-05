@@ -12,23 +12,19 @@ const currentPhoto: Ref<MediaFile | null> = ref(null)
 const nextPhoto: Ref<MediaFile | null> = ref(null)
 const slideshowEl: Ref<HTMLElement | null> = ref(null)
 const isFullscreen = ref(false)
+const history: Ref<MediaFile[]> = ref([])
+const historyIndex = ref(-1)
 
 onMounted(async () => {
 	window.addEventListener('keydown', handleKeydown)
 	document.addEventListener('fullscreenchange', handleFullscreenChange)
-	await loadRandomPhoto()
+	await navigateForward()
 })
 
 onUnmounted(() => {
 	window.removeEventListener('keydown', handleKeydown)
 	document.removeEventListener('fullscreenchange', handleFullscreenChange)
 })
-
-const handleKeydown = (event: KeyboardEvent) => {
-	if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
-		loadRandomPhoto()
-	}
-}
 
 const handleFullscreenChange = () => {
 	isFullscreen.value = !!document.fullscreenElement
@@ -53,42 +49,61 @@ const preloadNext = async () => {
 	}
 }
 
-const loadRandomPhoto = async () => {
+const navigateBack = () => {
+	if (navigating.value || historyIndex.value <= 0) return
+	historyIndex.value--
+	currentPhoto.value = history.value[historyIndex.value]
+}
+
+const navigateForward = async () => {
 	if (navigating.value) return
 	navigating.value = true
 
-	if (nextPhoto.value) {
-		currentPhoto.value = nextPhoto.value
-		nextPhoto.value = null
+	if (historyIndex.value < history.value.length - 1) {
+		historyIndex.value++
+		currentPhoto.value = history.value[historyIndex.value]
 		navigating.value = false
-		preloadNext()
 		return
 	}
 
-	try {
-		if (totalElements.value === 0) {
-			const first = await getPhotos(0, 1)
-			totalElements.value = first?.totalElements ?? 0
-		}
+	let photo: MediaFile | null = null
 
-		if (totalElements.value === 0) {
-			navigating.value = false
-			return
-		}
+	if (nextPhoto.value) {
+		photo = nextPhoto.value
+		nextPhoto.value = null
+	} else {
+		try {
+			if (totalElements.value === 0) {
+				const first = await getPhotos(0, 1)
+				totalElements.value = first?.totalElements ?? 0
+			}
 
-		const randomPage = Math.floor(Math.random() * totalElements.value)
-		const result = await getPhotos(randomPage, 1)
-
-		if (result?.content?.length > 0) {
-			currentPhoto.value = result.content[0]
+			if (totalElements.value > 0) {
+				const randomPage = Math.floor(Math.random() * totalElements.value)
+				const result = await getPhotos(randomPage, 1)
+				if (result?.content?.length > 0) {
+					photo = result.content[0] as MediaFile
+				}
+			}
+		} catch (error: unknown) {
+			const err = error as { response?: { data?: { message?: string; status?: number } }; message?: string }
+			errorStore.set(true, err.response?.data?.message ?? err.message ?? '', err.response?.data?.status ?? 500)
 		}
-	} catch (error: unknown) {
-		const err = error as { response?: { data?: { message?: string; status?: number } }; message?: string }
-		errorStore.set(true, err.response?.data?.message ?? err.message ?? '', err.response?.data?.status ?? 500)
+	}
+
+	if (photo) {
+		history.value.push(photo)
+		historyIndex.value = history.value.length - 1
+		currentPhoto.value = photo
 	}
 
 	navigating.value = false
 	preloadNext()
+}
+
+const handleKeydown = (event: KeyboardEvent) => {
+	if (event.key === 'ArrowRight') navigateForward()
+	else if (event.key === 'ArrowLeft') navigateBack()
 }
 
 const toggleFullscreen = async () => {
@@ -119,9 +134,9 @@ const toggleFullscreen = async () => {
 
 		<button
 			class="slideshow__arrow slideshow__arrow--left"
-			@click="loadRandomPhoto"
+			@click="navigateBack"
 			:title="language.get('Previous')"
-			:disabled="navigating"
+			:disabled="navigating || historyIndex <= 0"
 		>
 			<svg xmlns="http://www.w3.org/2000/svg" width="32" fill="currentColor" class="bi bi-chevron-left" viewBox="0 0 16 16">
 				<path fill-rule="evenodd" d="M11.354 1.646a.5.5 0 0 1 0 .708L5.707 8l5.647 5.646a.5.5 0 0 1-.708.708l-6-6a.5.5 0 0 1 0-.708l6-6a.5.5 0 0 1 .708 0z"/>
@@ -130,7 +145,7 @@ const toggleFullscreen = async () => {
 
 		<button
 			class="slideshow__arrow slideshow__arrow--right"
-			@click="loadRandomPhoto"
+			@click="navigateForward"
 			:title="language.get('Next')"
 			:disabled="navigating"
 		>
