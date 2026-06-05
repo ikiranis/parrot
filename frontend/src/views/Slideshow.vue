@@ -181,7 +181,11 @@ const toggleFullscreen = async () => {
 		border-radius: 0;
 
 		.slideshow__image {
-			max-height: 100vh;
+			width: 100vw;
+			height: 100vh;
+			max-width: none;
+			max-height: none;
+			object-fit: contain;
 		}
 	}
 
