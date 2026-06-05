@@ -9,6 +9,7 @@ import org.springframework.stereotype.Repository;
 import eu.apps4net.parrotApp.models.MediaFile;
 import eu.apps4net.parrotApp.models.MediaKind;
 
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -36,15 +37,15 @@ public interface MediaFileRepository extends JpaRepository<MediaFile, Long> {
 	Page<MediaFile> findByKind(MediaKind kind, Pageable pageable);
 
 	/**
-	 * Returns a single randomly selected media file of the given kind.
-	 * Uses Derby's RANDOM() to assign a per-row random value and picks the top result.
+	 * Returns up to {@code count} randomly selected media files of the given kind in a single query.
+	 * Uses Derby's RANDOM() per-row to shuffle, then limits via the pageable page size.
 	 *
-	 * @param kind the media kind string (e.g. {@code "IMAGE"})
-	 * @return an {@link Optional} containing a random file, or empty if none exist
+	 * @param kind     the media kind string (e.g. {@code "IMAGE"})
+	 * @param pageable page size controls how many rows are returned; page index must be 0
+	 * @return list of randomly selected {@link MediaFile} records, empty if none exist
 	 */
-	@Query(value = "SELECT * FROM media_file WHERE kind = ?1 ORDER BY RANDOM() FETCH FIRST 1 ROWS ONLY",
-		nativeQuery = true)
-	Optional<MediaFile> findRandomByKind(String kind);
+	@Query(value = "SELECT * FROM media_file WHERE kind = ?1 ORDER BY RANDOM()", nativeQuery = true)
+	List<MediaFile> findRandomPhotos(String kind, Pageable pageable);
 
 	/**
 	 * Deletes all media files of the given kind.

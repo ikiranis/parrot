@@ -2,13 +2,15 @@
 import { ref, Ref, onMounted, onUnmounted } from "vue"
 import { language } from "@/functions/languageStore.ts"
 import { errorStore } from "@/components/error/errorStore.ts"
-import { getRandomPhoto, getPhotoImageUrl } from "@/api/photo.ts"
+import { getRandomPhotos, getPhotoImageUrl } from "@/api/photo.ts"
 import type { MediaFile } from "@/types"
 import Error from "@/components/error/Error.vue"
 
+const PREFETCH_MAX = 10
+
 const navigating = ref(false)
 const currentPhoto: Ref<MediaFile | null> = ref(null)
-const nextPhoto: Ref<MediaFile | null> = ref(null)
+const prefetchQueue: Ref<MediaFile[]> = ref([])
 const slideshowEl: Ref<HTMLElement | null> = ref(null)
 const isFullscreen = ref(false)
 const history: Ref<MediaFile[]> = ref([])
@@ -29,12 +31,15 @@ const handleFullscreenChange = () => {
 	isFullscreen.value = !!document.fullscreenElement
 }
 
-/** Fetches the next random photo and warms the browser image cache without blocking navigation. */
+/** Fills the prefetch queue up to PREFETCH_MAX with a single batch request, adding photos one by one. */
 const preloadNext = async () => {
+	const slots = PREFETCH_MAX - prefetchQueue.value.length
+	if (slots <= 0) return
+
 	try {
-		const photo = await getRandomPhoto()
-		if (photo) {
-			nextPhoto.value = photo
+		const photos = await getRandomPhotos(slots)
+		for (const photo of photos) {
+			prefetchQueue.value.push(photo)
 			const img = new Image()
 			img.src = getPhotoImageUrl(photo.id)
 		}
@@ -62,12 +67,17 @@ const navigateForward = async () => {
 
 	let photo: MediaFile | null = null
 
-	if (nextPhoto.value) {
-		photo = nextPhoto.value
-		nextPhoto.value = null
+	if (prefetchQueue.value.length > 0) {
+		photo = prefetchQueue.value.shift()!
 	} else {
 		try {
-			photo = await getRandomPhoto()
+			const photos = await getRandomPhotos(PREFETCH_MAX)
+			photo = photos[0] ?? null
+			for (const p of photos.slice(1)) {
+				prefetchQueue.value.push(p)
+				const img = new Image()
+				img.src = getPhotoImageUrl(p.id)
+			}
 		} catch (error: unknown) {
 			const err = error as { response?: { data?: { message?: string; status?: number } }; message?: string }
 			errorStore.set(true, err.response?.data?.message ?? err.message ?? '', err.response?.data?.status ?? 500)

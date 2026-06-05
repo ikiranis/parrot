@@ -91,16 +91,18 @@ export const getPhotoById = async (id: number): Promise<PhotoDetail> => {
 }
 
 /**
- * Returns a single randomly selected photo from the library.
- * Returns `null` when the library is empty (HTTP 204).
+ * Returns up to `count` randomly selected photos in a single request.
+ * Returns an empty array when the library is empty (HTTP 204).
  *
- * @returns a {@link MediaFile} or `null`
+ * @param count number of photos to fetch (default 10)
+ * @returns array of {@link MediaFile} records
  */
-export const getRandomPhoto = async (): Promise<import("@/types").MediaFile | null> => {
+export const getRandomPhotos = async (count: number = 10): Promise<import("@/types").MediaFile[]> => {
     const response = await axios.get(config.defaultServer() + '/api/photos/random', {
+        params: { count },
         validateStatus: (s) => s === 200 || s === 204
     })
-    return response.status === 200 ? response.data : null
+    return response.status === 200 ? response.data : []
 }
 
 /**

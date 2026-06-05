@@ -24,6 +24,7 @@ import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -102,16 +103,20 @@ public class PhotoController {
 	}
 
 	/**
-	 * Returns a single randomly selected photo from the database.
-	 * Delegates randomisation to the database via a native Derby {@code ORDER BY RAND()} query.
+	 * Returns up to {@code count} randomly selected photos in a single query.
 	 *
-	 * @return 200 with the {@link MediaFile}, or 204 No Content if no photos exist
+	 * @param count number of photos to return (1–50, default 10)
+	 * @return 200 with a {@link List} of {@link MediaFile} records, or 204 No Content if the library is empty
 	 */
 	@GetMapping("random")
-	public ResponseEntity<MediaFile> getRandomPhoto() {
-		return mediaFileRepository.findRandomByKind(MediaKind.IMAGE.name())
-				.map(ResponseEntity::ok)
-				.orElseGet(() -> ResponseEntity.noContent().build());
+	public ResponseEntity<List<MediaFile>> getRandomPhotos(
+			@RequestParam(defaultValue = "10") int count) {
+		List<MediaFile> photos = mediaFileRepository.findRandomPhotos(
+				MediaKind.IMAGE.name(),
+				PageRequest.of(0, Math.min(Math.max(count, 1), 50)));
+		return photos.isEmpty()
+				? ResponseEntity.noContent().build()
+				: ResponseEntity.ok(photos);
 	}
 
 	/**
