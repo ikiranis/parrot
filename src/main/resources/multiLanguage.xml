@@ -306,4 +306,89 @@
         <language code="el">Σάρωση Βιβλιοθήκης</language>
     </entry>
 
+    <entry id="Library Scan">
+        <language code="en">Library Scan</language>
+        <language code="el">Σάρωση Βιβλιοθήκης</language>
+    </entry>
+
+    <entry id="Started">
+        <language code="en">Started</language>
+        <language code="el">Ξεκίνησε</language>
+    </entry>
+
+    <entry id="Finished">
+        <language code="en">Finished</language>
+        <language code="el">Ολοκληρώθηκε</language>
+    </entry>
+
+    <entry id="RUNNING">
+        <language code="en">Running</language>
+        <language code="el">Σε εξέλιξη</language>
+    </entry>
+
+    <entry id="COMPLETED">
+        <language code="en">Completed</language>
+        <language code="el">Ολοκληρώθηκε</language>
+    </entry>
+
+    <entry id="FAILED">
+        <language code="en">Failed</language>
+        <language code="el">Απέτυχε</language>
+    </entry>
+
+    <entry id="Failed to start scan">
+        <language code="en">Failed to start scan</language>
+        <language code="el">Αποτυχία εκκίνησης σάρωσης</language>
+    </entry>
+
+    <entry id="No scan has been run yet. Click &quot;Scan Library&quot; to start.">
+        <language code="en">No scan has been run yet. Click "Scan Library" to start.</language>
+        <language code="el">Δεν έχει εκτελεστεί σάρωση. Κάντε κλικ στο "Σάρωση Βιβλιοθήκης" για να ξεκινήσετε.</language>
+    </entry>
+
+    <entry id="Folders Scanned">
+        <language code="en">Folders Scanned</language>
+        <language code="el">Φάκελοι που σαρώθηκαν</language>
+    </entry>
+
+    <entry id="Folders Skipped">
+        <language code="en">Folders Skipped</language>
+        <language code="el">Φάκελοι που παραλείφθηκαν</language>
+    </entry>
+
+    <entry id="Tags Read">
+        <language code="en">Tags Read</language>
+        <language code="el">Ετικέτες που διαβάστηκαν</language>
+    </entry>
+
+    <entry id="Collecting directories">
+        <language code="en">Collecting directories</language>
+        <language code="el">Συλλογή φακέλων</language>
+    </entry>
+
+    <entry id="Scanning files">
+        <language code="en">Scanning files</language>
+        <language code="el">Σάρωση αρχείων</language>
+    </entry>
+
+    <entry id="Reading tags">
+        <language code="en">Reading tags</language>
+        <language code="el">Ανάγνωση ετικετών</language>
+    </entry>
+
+    <entry id="files">
+        <language code="en">files</language>
+        <language code="el">αρχεία</language>
+    </entry>
+
+    <entry id="Library total">
+        <language code="en">Library total</language>
+        <language code="el">Σύνολο βιβλιοθήκης</language>
+    </entry>
+
+    <entry id="before this scan">
+        <language code="en">before this scan</language>
+        <language code="el">πριν από αυτή τη σάρωση</language>
+    </entry>
+
 </root>

@@ -6,6 +6,7 @@ import eu.apps4net.parrotApp.models.LibraryFolder;
 import eu.apps4net.parrotApp.models.MediaFile;
 import eu.apps4net.parrotApp.models.MediaKind;
 import eu.apps4net.parrotApp.models.ScanJobState;
+import eu.apps4net.parrotApp.models.ScanPhase;
 import eu.apps4net.parrotApp.models.ScanResult;
 import eu.apps4net.parrotApp.repositories.MediaFileRepository;
 import eu.apps4net.parrotApp.services.tagscanner.MediaTagScanner;
@@ -35,17 +36,17 @@ import java.util.stream.Stream;
  * Service that recursively scans a server-side directory for media files and
  * persists them in three phases:
  *
- * 1. Folder scan – collects every leaf directory (a directory containing no
- *    subdirectories) and delegates to {@link FolderService#checkAndSaveFolder} to
- *    decide whether its files need re-scanning.  Unchanged directories are skipped.
- * 2. File scan – for each changed leaf directory, detects media files by extension,
- *    determines their {@link MediaKind}, and saves a {@link MediaFile} record for each
- *    new file.  Already-indexed files are skipped.
- * 3. Tag scan – dispatches each saved {@link MediaFile} to the appropriate
+ * 1. Folder scan (COLLECTING) – collects every leaf directory (a directory containing
+ *    at least one direct file) across all configured library folders.
+ * 2. File scan (SCANNING) – for each changed leaf directory, detects media files by
+ *    extension, determines their {@link MediaKind}, and saves a {@link MediaFile} record
+ *    for each new file.  Already-indexed files are skipped.
+ * 3. Tag scan (TAGGING) – dispatches each saved {@link MediaFile} to the appropriate
  *    {@link MediaTagScanner} implementation based on its {@link MediaKind}.
  *
- * When called with a {@link ScanJobState}, each counter increment is mirrored into
- * the job state so that background scans expose live progress over the REST API.
+ * When called with a {@link ScanJobState}, phase transitions and every counter increment
+ * are mirrored into the job state so that background scans expose live progress and error
+ * logs over the REST API.
  */
 @Service
 public class MediaScanService {
@@ -112,13 +113,11 @@ public class MediaScanService {
 	/**
 	 * Scans the given folder recursively for media files and saves them to the database.
 	 *
-	 * Phase 1 collects all leaf directories (directories that contain no subdirectories)
-	 * under {@code folderPath} and asks {@link FolderService#checkAndSaveFolder} whether
-	 * each one has changed.  Unchanged directories are skipped entirely.
+	 * Phase 1 collects all leaf directories under {@code folderPath} and asks
+	 * {@link FolderService#checkAndSaveFolder} whether each one has changed.
 	 * Phase 2 scans the direct files of every changed leaf directory and persists a
 	 * {@link MediaFile} for each new file whose extension maps to a known {@link MediaKind}.
-	 * Phase 3 iterates over the saved files and invokes the matching
-	 * {@link MediaTagScanner} (if one is registered for that kind).
+	 * Phase 3 iterates over the saved files and invokes the matching {@link MediaTagScanner}.
 	 *
 	 * @param folderPath absolute path to the root folder to scan
 	 * @return {@link ScanResult} with counts of added, skipped, and errored files
@@ -164,6 +163,12 @@ public class MediaScanService {
 	/**
 	 * Scans all configured {@link LibraryFolder} paths in the background, writing live
 	 * progress into the provided {@link ScanJobState} as each file and folder is processed.
+	 *
+	 * The scan proceeds in three explicit phases, each mirrored onto the job state:
+	 * 1. COLLECTING – discover all leaf directories across every library folder.
+	 * 2. SCANNING   – inspect each directory for new media files.
+	 * 3. TAGGING    – read metadata tags for every newly added file.
+	 *
 	 * Marks the job state as completed or failed when the scan finishes.
 	 * Intended to be called from {@link ScanJobService} on a background thread.
 	 *
@@ -178,9 +183,24 @@ public class MediaScanService {
 		}
 
 		try {
-			for (LibraryFolder libraryFolder : libraryFolders) {
-				scanFolder(libraryFolder.getPath(), state);
-			}
+			// Record pre-scan DB count so the frontend can show context for re-scans
+			state.setInitialFilesCount((int) mediaFileRepository.count());
+
+			// Phase 1: collect all leaf directories across all library folders
+			state.setPhase(ScanPhase.COLLECTING);
+			List<LeafDirEntry> allLeafDirs = collectAllLeafDirs(libraryFolders, state);
+			state.setTotalFolders(allLeafDirs.size());
+			state.setTotalMediaFilesInLibrary(countAllMediaFiles(allLeafDirs));
+
+			// Phase 2: scan all leaf directories for new media files
+			state.setPhase(ScanPhase.SCANNING);
+			List<FileScanEntry> allEntries = scanAllLeafDirs(allLeafDirs, state);
+			state.setTotalFiles(allEntries.size());
+
+			// Phase 3: read metadata tags for all newly added files
+			state.setPhase(ScanPhase.TAGGING);
+			runTagScanners(allEntries, state);
+
 			state.complete("Scan complete. Added: " + state.getAdded() +
 					", Skipped: " + state.getSkipped() +
 					", Errors: " + state.getErrors() +
@@ -189,6 +209,132 @@ public class MediaScanService {
 		} catch (Exception e) {
 			state.fail("Scan failed: " + e.getMessage());
 		}
+	}
+
+	/**
+	 * Phase 1 (background) — walks every configured library folder and collects all leaf
+	 * directories into a flat list paired with their library root for later use in tag scanning.
+	 * Errors accessing individual library folders are logged to {@code state} and skipped.
+	 *
+	 * @param libraryFolders configured library folders to walk
+	 * @param state          job state for error logging
+	 * @return flat list of all leaf directory entries across all library folders
+	 */
+	private List<LeafDirEntry> collectAllLeafDirs(List<LibraryFolder> libraryFolders, ScanJobState state) {
+		List<LeafDirEntry> allLeafDirs = new ArrayList<>();
+		for (LibraryFolder lf : libraryFolders) {
+			Path root = Paths.get(lf.getPath());
+			if (!Files.exists(root) || !Files.isDirectory(root)) {
+				state.incrementErrors();
+				state.addErrorLog("Library folder not accessible: " + lf.getPath());
+				continue;
+			}
+			try {
+				for (Path leafDir : collectLeafDirs(root)) {
+					allLeafDirs.add(new LeafDirEntry(leafDir, root));
+				}
+			} catch (IOException e) {
+				state.incrementErrors();
+				state.addErrorLog("Failed to walk " + lf.getPath() + ": " + e.getMessage());
+			}
+		}
+		return allLeafDirs;
+	}
+
+	/**
+	 * Phase 2 (background) — partitions the leaf directory list into chunks and processes
+	 * each chunk in a dedicated thread.  For each directory, delegates to
+	 * {@link FolderService#checkAndSaveFolder} to detect changes; changed directories have
+	 * their direct regular files scanned and saved as {@link MediaFile} records.
+	 *
+	 * @param leafDirs all leaf directory entries to process
+	 * @param state    job state for live counter updates and error logging
+	 * @return list of entries ready for Phase 3 tag scanning
+	 */
+	private List<FileScanEntry> scanAllLeafDirs(List<LeafDirEntry> leafDirs, ScanJobState state) {
+		int total = leafDirs.size();
+		if (total == 0) return List.of();
+
+		int threads = Math.min(settingService.getMaxThreads(), total);
+		int chunkSize = (int) Math.ceil((double) total / threads);
+
+		List<FileScanEntry> allEntries = Collections.synchronizedList(new ArrayList<>());
+		ExecutorService executor = Executors.newFixedThreadPool(threads);
+		List<Future<?>> futures = new ArrayList<>();
+
+		for (int i = 0; i < total; i += chunkSize) {
+			List<LeafDirEntry> chunk = leafDirs.subList(i, Math.min(i + chunkSize, total));
+			futures.add(executor.submit(() -> {
+				for (LeafDirEntry entry : chunk) {
+					boolean hasChanges;
+					try {
+						hasChanges = folderService.checkAndSaveFolder(entry.leafDir());
+					} catch (IOException e) {
+						state.incrementErrors();
+						state.addErrorLog("Folder check failed: " + entry.leafDir() + " — " + e.getMessage());
+						continue;
+					}
+					if (!hasChanges) {
+						state.incrementFoldersSkipped();
+						continue;
+					}
+					state.incrementFoldersScanned();
+					try (Stream<Path> files = Files.list(entry.leafDir())) {
+						files.filter(Files::isRegularFile).forEach(filePath -> {
+							FileScanEntry fse = scanMediaFileToEntry(filePath, entry.root(), state);
+							if (fse != null) allEntries.add(fse);
+						});
+					} catch (IOException e) {
+						state.incrementErrors();
+						state.addErrorLog("Failed to list directory: " + entry.leafDir() + " — " + e.getMessage());
+					}
+				}
+			}));
+		}
+
+		executor.shutdown();
+		awaitAll(futures, state);
+		return allEntries;
+	}
+
+	/**
+	 * Phase 3 (background) — partitions saved entries into chunks and processes each chunk
+	 * in a dedicated thread.  For each entry, looks up the registered {@link MediaTagScanner}
+	 * for its {@link MediaKind} and invokes tag scanning.
+	 *
+	 * @param entries all file entries to tag
+	 * @param state   job state for live counter updates and error logging
+	 */
+	private void runTagScanners(List<FileScanEntry> entries, ScanJobState state) {
+		int total = entries.size();
+		if (total == 0) return;
+
+		int threads = Math.min(settingService.getMaxThreads(), total);
+		int chunkSize = (int) Math.ceil((double) total / threads);
+
+		ExecutorService executor = Executors.newFixedThreadPool(threads);
+		List<Future<?>> futures = new ArrayList<>();
+
+		for (int i = 0; i < total; i += chunkSize) {
+			List<FileScanEntry> chunk = entries.subList(i, Math.min(i + chunkSize, total));
+			futures.add(executor.submit(() -> {
+				for (FileScanEntry entry : chunk) {
+					MediaTagScanner scanner = tagScanners.get(entry.mediaFile().getKind());
+					if (scanner != null) {
+						try {
+							scanner.scanTags(entry.mediaFile(), entry.filePath(), entry.root());
+						} catch (Exception e) {
+							state.incrementErrors();
+							state.addErrorLog("Tag scan failed: " + entry.filePath() + " — " + e.getMessage());
+						}
+					}
+					state.incrementTagged();
+				}
+			}));
+		}
+
+		executor.shutdown();
+		awaitAll(futures, state);
 	}
 
 	/**
@@ -232,11 +378,11 @@ public class MediaScanService {
 	}
 
 	/**
-	 * Phase 1 — walks {@code root} recursively and collects every directory that
-	 * contains at least one direct regular file.
+	 * Phase 1 (synchronous) — walks {@code root} recursively and collects every directory
+	 * that contains at least one direct regular file.
 	 *
-	 * Directories whose names start with {@code #} (e.g. {@code #recycle}, {@code #snapshot})
-	 * are skipped entirely, as are any directories that cannot be accessed.
+	 * Directories whose names start with {@code #} (e.g. {@code #recycle}) are skipped
+	 * entirely, as are any directories that cannot be accessed.
 	 *
 	 * @param root the root directory to walk
 	 * @return list of directories that contain at least one direct regular file
@@ -271,19 +417,17 @@ public class MediaScanService {
 	}
 
 	/**
-	 * Phase 2 — partitions {@code leafDirs} into chunks and processes each chunk in a
-	 * dedicated thread, using up to {@code maxThreads} threads as configured in settings.
-	 * For each directory, delegates to {@link FolderService#checkAndSaveFolder} to detect
-	 * changes; changed directories have their direct regular files scanned and saved.
+	 * Phase 2 (synchronous) — partitions {@code leafDirs} into chunks and processes each
+	 * chunk in a dedicated thread.  For each directory, delegates to
+	 * {@link FolderService#checkAndSaveFolder}; changed directories have their direct
+	 * regular files scanned and saved.
 	 *
 	 * @param leafDirs directories to process
 	 * @param ctx      mutable scan state shared across all threads
 	 */
 	private void scanLeafDirectories(List<Path> leafDirs, ScanContext ctx) {
 		int total = leafDirs.size();
-		if (total == 0) {
-			return;
-		}
+		if (total == 0) return;
 
 		int threads = Math.min(settingService.getMaxThreads(), total);
 		int chunkSize = (int) Math.ceil((double) total / threads);
@@ -299,7 +443,7 @@ public class MediaScanService {
 					try {
 						hasChanges = folderService.checkAndSaveFolder(leafDir);
 					} catch (IOException e) {
-						ctx.incrementErrors();
+						ctx.incrementErrors("Folder check failed: " + leafDir, e.getMessage());
 						continue;
 					}
 					if (!hasChanges) {
@@ -311,7 +455,7 @@ public class MediaScanService {
 						files.filter(Files::isRegularFile)
 								.forEach(filePath -> scanMediaFile(filePath, ctx));
 					} catch (IOException e) {
-						ctx.incrementErrors();
+						ctx.incrementErrors("Failed to list directory: " + leafDir, e.getMessage());
 					}
 				}
 			}));
@@ -331,18 +475,15 @@ public class MediaScanService {
 	}
 
 	/**
-	 * Phase 3 — partitions saved entries into chunks and processes each chunk in a
-	 * dedicated thread, using up to {@code maxThreads} threads as configured in settings.
-	 * For each entry, looks up the registered {@link MediaTagScanner} for its {@link MediaKind}
-	 * and invokes tag scanning.
+	 * Phase 3 (synchronous) — partitions saved entries into chunks and processes each chunk
+	 * in a dedicated thread.  For each entry, looks up the registered {@link MediaTagScanner}
+	 * for its {@link MediaKind} and invokes tag scanning.
 	 *
 	 * @param ctx mutable scan state holding the saved entries, scan root, and error counter
 	 */
 	private void runTagScanners(ScanContext ctx) {
 		int total = ctx.savedEntries.size();
-		if (total == 0) {
-			return;
-		}
+		if (total == 0) return;
 
 		int threads = Math.min(settingService.getMaxThreads(), total);
 		int chunkSize = (int) Math.ceil((double) total / threads);
@@ -357,9 +498,9 @@ public class MediaScanService {
 					MediaTagScanner scanner = tagScanners.get(entry.mediaFile().getKind());
 					if (scanner != null) {
 						try {
-							scanner.scanTags(entry.mediaFile(), entry.filePath(), ctx.root);
+							scanner.scanTags(entry.mediaFile(), entry.filePath(), entry.root());
 						} catch (Exception e) {
-							ctx.incrementErrors();
+							ctx.incrementErrors("Tag scan failed: " + entry.filePath(), e.getMessage());
 						}
 					}
 					ctx.incrementTagged();
@@ -381,8 +522,7 @@ public class MediaScanService {
 	}
 
 	/**
-	 * Returns {@code true} when {@code dir} contains at least one direct regular file,
-	 * meaning its files should be scanned regardless of whether it also has subdirectories.
+	 * Returns {@code true} when {@code dir} contains at least one direct regular file.
 	 *
 	 * @param dir the directory to test
 	 * @return {@code true} if the directory has at least one direct regular file
@@ -396,23 +536,19 @@ public class MediaScanService {
 	}
 
 	/**
-	 * Processes a single file during Phase 2: resolves its {@link MediaKind} by
-	 * extension, skips it if already indexed, otherwise saves a {@link MediaFile}
-	 * record and adds the entry to the context for Phase 3 processing.
+	 * Processes a single file during Phase 2 (synchronous path): resolves its
+	 * {@link MediaKind} by extension, skips it if already indexed, otherwise saves a
+	 * {@link MediaFile} record and adds the entry to the context for Phase 3 processing.
 	 *
 	 * @param filePath the path to the file
 	 * @param ctx      mutable scan state updated as files are processed
 	 */
 	private void scanMediaFile(Path filePath, ScanContext ctx) {
 		Optional<MediaKind> kindOpt = resolveKind(filePath);
-		if (kindOpt.isEmpty()) {
-			return; // not a recognised media type
-		}
+		if (kindOpt.isEmpty()) return;
 
 		String filename = filePath.getFileName().toString();
-		String parentPath = filePath.getParent() != null
-				? filePath.getParent().toString()
-				: "";
+		String parentPath = filePath.getParent() != null ? filePath.getParent().toString() : "";
 
 		if (mediaFileRepository.findByPathAndFilename(parentPath, filename).isPresent()) {
 			ctx.incrementSkipped();
@@ -422,10 +558,45 @@ public class MediaScanService {
 		try {
 			MediaFile mediaFile = new MediaFile(parentPath, filename, null, kindOpt.get());
 			mediaFileRepository.save(mediaFile);
-			ctx.savedEntries.add(new FileScanEntry(mediaFile, filePath));
+			ctx.savedEntries.add(new FileScanEntry(mediaFile, filePath, ctx.root));
 			ctx.incrementAdded();
 		} catch (Exception e) {
-			ctx.incrementErrors();
+			ctx.incrementErrors("Save failed: " + filePath, e.getMessage());
+		}
+	}
+
+	/**
+	 * Processes a single file during Phase 2 (background path): resolves its
+	 * {@link MediaKind}, skips already-indexed files, saves a {@link MediaFile} record
+	 * for new files, and returns a {@link FileScanEntry} ready for Phase 3.
+	 * Returns {@code null} if the file is not a recognised media type or is already indexed.
+	 *
+	 * @param filePath the path to the file
+	 * @param root     the library root this file belongs to
+	 * @param state    job state for counter updates and error logging
+	 * @return a {@link FileScanEntry}, or {@code null} if the file should not proceed to Phase 3
+	 */
+	private FileScanEntry scanMediaFileToEntry(Path filePath, Path root, ScanJobState state) {
+		Optional<MediaKind> kindOpt = resolveKind(filePath);
+		if (kindOpt.isEmpty()) return null;
+
+		String filename = filePath.getFileName().toString();
+		String parentPath = filePath.getParent() != null ? filePath.getParent().toString() : "";
+
+		if (mediaFileRepository.findByPathAndFilename(parentPath, filename).isPresent()) {
+			state.incrementSkipped();
+			return null;
+		}
+
+		try {
+			MediaFile mediaFile = new MediaFile(parentPath, filename, null, kindOpt.get());
+			mediaFileRepository.save(mediaFile);
+			state.incrementAdded();
+			return new FileScanEntry(mediaFile, filePath, root);
+		} catch (Exception e) {
+			state.incrementErrors();
+			state.addErrorLog("Save failed: " + filePath + " — " + e.getMessage());
+			return null;
 		}
 	}
 
@@ -439,9 +610,7 @@ public class MediaScanService {
 	private Optional<MediaKind> resolveKind(Path path) {
 		String name = path.getFileName().toString().toLowerCase();
 		int dot = name.lastIndexOf('.');
-		if (dot < 0) {
-			return Optional.empty();
-		}
+		if (dot < 0) return Optional.empty();
 		String ext = name.substring(dot + 1);
 		if (IMAGE_EXTENSIONS.contains(ext)) return Optional.of(MediaKind.IMAGE);
 		if (VIDEO_EXTENSIONS.contains(ext)) return Optional.of(MediaKind.VIDEO);
@@ -450,9 +619,49 @@ public class MediaScanService {
 	}
 
 	/**
-	 * Holds all mutable state for a single scan run.
-	 * A new instance is created per {@link #scanFolder(String, ScanJobState)} call, keeping
-	 * concurrent scans isolated from one another.
+	 * Counts all media files across every leaf directory in parallel by extension,
+	 * without any database access. Used after Phase 1 to set the total-files denominator.
+	 *
+	 * @param leafDirs all leaf directory entries discovered in Phase 1
+	 * @return total count of files whose extension maps to a known {@link MediaKind}
+	 */
+	private int countAllMediaFiles(List<LeafDirEntry> leafDirs) {
+		return leafDirs.parallelStream()
+				.mapToInt(entry -> {
+					try (Stream<Path> files = Files.list(entry.leafDir())) {
+						return (int) files
+								.filter(Files::isRegularFile)
+								.filter(f -> resolveKind(f).isPresent())
+								.count();
+					} catch (IOException e) {
+						return 0;
+					}
+				})
+				.sum();
+	}
+
+	/**
+	 * Waits for all futures to complete, recording interrupt/execution errors on the state.
+	 *
+	 * @param futures futures to await
+	 * @param state   job state for error counting
+	 */
+	private void awaitAll(List<Future<?>> futures, ScanJobState state) {
+		for (Future<?> future : futures) {
+			try {
+				future.get();
+			} catch (InterruptedException e) {
+				Thread.currentThread().interrupt();
+				state.incrementErrors();
+			} catch (ExecutionException e) {
+				state.incrementErrors();
+			}
+		}
+	}
+
+	/**
+	 * Holds all mutable state for a single synchronous scan run.
+	 * A new instance is created per {@link #scanFolder(String, ScanJobState)} call.
 	 * When a {@link ScanJobState} is supplied, every counter increment is mirrored into
 	 * it so that background scans expose live progress over the REST API.
 	 */
@@ -506,6 +715,14 @@ public class MediaScanService {
 			if (jobState != null) jobState.incrementErrors();
 		}
 
+		void incrementErrors(String path, String errorMsg) {
+			errors.incrementAndGet();
+			if (jobState != null) {
+				jobState.incrementErrors();
+				jobState.addErrorLog(path + " — " + errorMsg);
+			}
+		}
+
 		void incrementFoldersScanned() {
 			foldersScanned.incrementAndGet();
 			if (jobState != null) jobState.incrementFoldersScanned();
@@ -522,11 +739,21 @@ public class MediaScanService {
 	}
 
 	/**
+	 * Associates a leaf directory with the library root it belongs to.
+	 * Used during Phase 1 to preserve the root context needed by tag scanners in Phase 3.
+	 *
+	 * @param leafDir the leaf directory containing media files
+	 * @param root    the library root this leaf directory belongs to
+	 */
+	private record LeafDirEntry(Path leafDir, Path root) {}
+
+	/**
 	 * Intermediate container used during Phase 2 to associate a persisted
-	 * {@link MediaFile} with its original {@link Path} on disk.
+	 * {@link MediaFile} with its original {@link Path} on disk and the library root.
 	 *
 	 * @param mediaFile the saved media file entity
 	 * @param filePath  the file's location on disk
+	 * @param root      the library root this file belongs to, used by tag scanners
 	 */
-	private record FileScanEntry(MediaFile mediaFile, Path filePath) {}
+	private record FileScanEntry(MediaFile mediaFile, Path filePath, Path root) {}
 }

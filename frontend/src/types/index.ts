@@ -100,10 +100,15 @@ export type Setting = {
 /** Lifecycle states for a background library scan job. */
 export type ScanStatus = 'IDLE' | 'RUNNING' | 'COMPLETED' | 'FAILED'
 
+/** Active scanning phase within a running background scan job. */
+export type ScanPhase = 'COLLECTING' | 'SCANNING' | 'TAGGING'
+
 /** Response from the background scan API endpoints. */
 export type ScanJobResponse = {
 	jobId: string | null
 	status: ScanStatus
+	/** Active scanning phase; null when idle or not yet started. */
+	phase: ScanPhase | null
 	startedAt: string | null
 	completedAt: string | null
 	added: number
@@ -112,6 +117,18 @@ export type ScanJobResponse = {
 	foldersScanned: number
 	foldersSkipped: number
 	tagged: number
+	/** Total leaf directories discovered in Phase 1. */
+	totalFolders: number
+	/** Total new files to tag discovered in Phase 2. */
+	totalFiles: number
+	/** Total media files found in the filesystem across all leaf directories after Phase 1. */
+	totalMediaFilesInLibrary: number
+	/** Estimated progress percentage in the range [0, 100]. */
+	progressPercent: number
+	/** Ordered list of error messages collected during the scan. */
+	errorLogs: string[]
+	/** Media files already in the database before this scan started. */
+	initialFilesCount: number
 	message: string
 }
 

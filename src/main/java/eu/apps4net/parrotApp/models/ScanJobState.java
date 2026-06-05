@@ -1,6 +1,9 @@
 package eu.apps4net.parrotApp.models;
 
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -19,10 +22,13 @@ public class ScanJobState {
 	/** Current lifecycle phase; volatile so status changes are immediately visible. */
 	private volatile ScanStatus status = ScanStatus.RUNNING;
 
+	/** Active scanning phase; null until the scan service sets it. */
+	private volatile ScanPhase phase = null;
+
 	/** Wall-clock time when this job was created. */
 	private final Instant startedAt = Instant.now();
 
-	/** Wall-clock time when the scan finished; {@code null} while still running. */
+	/** Wall-clock time when the scan finished; null while still running. */
 	private volatile Instant completedAt;
 
 	/** Number of new media files added to the database so far. */
@@ -43,6 +49,21 @@ public class ScanJobState {
 	/** Number of media files whose tags have been read and persisted in Phase 3. */
 	private final AtomicInteger tagged = new AtomicInteger();
 
+	/** Total leaf directories discovered in Phase 1; set once collecting finishes. */
+	private final AtomicInteger totalFolders = new AtomicInteger();
+
+	/** Total new files to tag discovered in Phase 2; set once scanning finishes. */
+	private final AtomicInteger totalFiles = new AtomicInteger();
+
+	/** Total media files found in the filesystem across all leaf directories; set after Phase 1. */
+	private final AtomicInteger totalMediaFilesInLibrary = new AtomicInteger();
+
+	/** Number of media files already in the database before this scan started. */
+	private volatile int initialFilesCount = 0;
+
+	/** Ordered list of error messages collected during the scan; thread-safe. */
+	private final List<String> errorLogs = Collections.synchronizedList(new ArrayList<>());
+
 	/** Human-readable status message updated on completion or failure. */
 	private volatile String message = "Scan in progress...";
 
@@ -58,6 +79,22 @@ public class ScanJobState {
 	 */
 	public ScanStatus getStatus() {
 		return status;
+	}
+
+	/**
+	 * @return the active scanning phase, or {@code null} before the scan service sets it
+	 */
+	public ScanPhase getPhase() {
+		return phase;
+	}
+
+	/**
+	 * Sets the active scanning phase.
+	 *
+	 * @param phase the new phase
+	 */
+	public void setPhase(ScanPhase phase) {
+		this.phase = phase;
 	}
 
 	/**
@@ -114,6 +151,120 @@ public class ScanJobState {
 	 */
 	public int getTagged() {
 		return tagged.get();
+	}
+
+	/**
+	 * @return total leaf directories discovered in Phase 1
+	 */
+	public int getTotalFolders() {
+		return totalFolders.get();
+	}
+
+	/**
+	 * Sets the total number of leaf directories discovered after Phase 1 completes.
+	 *
+	 * @param n total leaf directory count
+	 */
+	public void setTotalFolders(int n) {
+		totalFolders.set(n);
+	}
+
+	/**
+	 * @return total new files to tag discovered in Phase 2
+	 */
+	public int getTotalFiles() {
+		return totalFiles.get();
+	}
+
+	/**
+	 * Sets the total number of new files to tag after Phase 2 completes.
+	 *
+	 * @param n total new file count
+	 */
+	public void setTotalFiles(int n) {
+		totalFiles.set(n);
+	}
+
+	/**
+	 * @return number of media files that were already in the database before this scan started
+	 */
+	public int getInitialFilesCount() {
+		return initialFilesCount;
+	}
+
+	/**
+	 * @return total media files found in the filesystem across all leaf directories
+	 */
+	public int getTotalMediaFilesInLibrary() {
+		return totalMediaFilesInLibrary.get();
+	}
+
+	/**
+	 * Sets the total number of media files found in the filesystem after Phase 1 completes.
+	 * Used as the denominator for the Files progress card.
+	 *
+	 * @param n total media file count on disk
+	 */
+	public void setTotalMediaFilesInLibrary(int n) {
+		totalMediaFilesInLibrary.set(n);
+	}
+
+	/**
+	 * Records the number of media files already in the database before scanning begins.
+	 * Called once at the start of each background scan to provide context for re-scans.
+	 *
+	 * @param n pre-scan file count
+	 */
+	public void setInitialFilesCount(int n) {
+		this.initialFilesCount = n;
+	}
+
+	/**
+	 * @return unmodifiable snapshot of all error log messages
+	 */
+	public List<String> getErrorLogs() {
+		return Collections.unmodifiableList(errorLogs);
+	}
+
+	/**
+	 * Appends an error message to the log.
+	 *
+	 * @param msg human-readable description of the error
+	 */
+	public void addErrorLog(String msg) {
+		errorLogs.add(msg);
+	}
+
+	/**
+	 * Computes an estimated progress percentage based on the current phase and counters.
+	 * Returns 100 when the scan completes successfully, and tracks partial progress
+	 * when the scan is running or has failed mid-way.
+	 *
+	 * - COLLECTING: 5% (indeterminate; total folders not yet known)
+	 * - SCANNING:   10-55% proportional to folders processed / totalFolders
+	 * - TAGGING:    55-99% proportional to files tagged / totalFiles
+	 * - COMPLETED:  100%
+	 *
+	 * @return progress estimate in the range [0, 100]
+	 */
+	public int getProgressPercent() {
+		if (status == ScanStatus.COMPLETED) return 100;
+		if (phase == null) return 0;
+		return switch (phase) {
+			case COLLECTING -> 5;
+			case SCANNING -> {
+				int total = totalFolders.get();
+				if (total == 0) yield 10;
+				int done = foldersScanned.get() + foldersSkipped.get();
+				yield 10 + (int) (done * 45.0 / total);
+			}
+			case TAGGING -> {
+				int total = totalFiles.get();
+				if (total == 0) yield 60;
+				int done = tagged.get();
+				yield 55 + (int) (done * 44.0 / total);
+			}
+		};
 	}
 
 	/**
