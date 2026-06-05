@@ -120,12 +120,7 @@ public class MediaScanService {
 			return new ScanResult(0, 0, 0, 0, 0, "Path is not a directory: " + folderPath);
 		}
 
-		AtomicInteger added = new AtomicInteger(0);
-		AtomicInteger skipped = new AtomicInteger(0);
-		AtomicInteger errors = new AtomicInteger(0);
-		AtomicInteger foldersScanned = new AtomicInteger(0);
-		AtomicInteger foldersSkipped = new AtomicInteger(0);
-		List<FileScanEntry> savedEntries = Collections.synchronizedList(new ArrayList<>());
+		ScanContext ctx = new ScanContext(root);
 
 		List<Path> leafDirs;
 		try {
@@ -134,16 +129,16 @@ public class MediaScanService {
 			return new ScanResult(0, 0, 0, 0, 0, "Error walking directory: " + e.getMessage());
 		}
 
-		scanLeafDirectories(leafDirs, savedEntries, added, skipped, errors, foldersScanned, foldersSkipped);
-		runTagScanners(savedEntries, root, errors);
+		scanLeafDirectories(leafDirs, ctx);
+		runTagScanners(ctx);
 
-		return new ScanResult(added.get(), skipped.get(), errors.get(),
-				foldersScanned.get(), foldersSkipped.get(),
-				"Scan complete. Added: " + added.get() +
-				", Skipped: " + skipped.get() +
-				", Errors: " + errors.get() +
-				", Folders scanned: " + foldersScanned.get() +
-				", Folders skipped: " + foldersSkipped.get());
+		return new ScanResult(ctx.added.get(), ctx.skipped.get(), ctx.errors.get(),
+				ctx.foldersScanned.get(), ctx.foldersSkipped.get(),
+				"Scan complete. Added: " + ctx.added.get() +
+				", Skipped: " + ctx.skipped.get() +
+				", Errors: " + ctx.errors.get() +
+				", Folders scanned: " + ctx.foldersScanned.get() +
+				", Folders skipped: " + ctx.foldersSkipped.get());
 	}
 
 	/**
@@ -170,17 +165,10 @@ public class MediaScanService {
 	 * For each directory, delegates to {@link FolderService#checkAndSaveFolder} to detect
 	 * changes; changed directories have their direct regular files scanned and saved.
 	 *
-	 * @param leafDirs       directories to process
-	 * @param savedEntries   thread-safe accumulator for successfully saved file entries
-	 * @param added          counter incremented when a {@link MediaFile} is persisted
-	 * @param skipped        counter incremented when a file is already indexed
-	 * @param errors         counter incremented on any exception
-	 * @param foldersScanned counter incremented when a folder has changes and is scanned
-	 * @param foldersSkipped counter incremented when a folder is unchanged
+	 * @param leafDirs directories to process
+	 * @param ctx      mutable scan state shared across all threads
 	 */
-	private void scanLeafDirectories(List<Path> leafDirs, List<FileScanEntry> savedEntries,
-			AtomicInteger added, AtomicInteger skipped, AtomicInteger errors,
-			AtomicInteger foldersScanned, AtomicInteger foldersSkipped) {
+	private void scanLeafDirectories(List<Path> leafDirs, ScanContext ctx) {
 		int total = leafDirs.size();
 		if (total == 0) {
 			return;
@@ -200,19 +188,19 @@ public class MediaScanService {
 					try {
 						hasChanges = folderService.checkAndSaveFolder(leafDir);
 					} catch (IOException e) {
-						errors.incrementAndGet();
+						ctx.errors.incrementAndGet();
 						continue;
 					}
 					if (!hasChanges) {
-						foldersSkipped.incrementAndGet();
+						ctx.foldersSkipped.incrementAndGet();
 						continue;
 					}
-					foldersScanned.incrementAndGet();
+					ctx.foldersScanned.incrementAndGet();
 					try (Stream<Path> files = Files.list(leafDir)) {
 						files.filter(Files::isRegularFile)
-								.forEach(filePath -> scanMediaFile(filePath, savedEntries, added, skipped, errors));
+								.forEach(filePath -> scanMediaFile(filePath, ctx));
 					} catch (IOException e) {
-						errors.incrementAndGet();
+						ctx.errors.incrementAndGet();
 					}
 				}
 			}));
@@ -224,25 +212,23 @@ public class MediaScanService {
 				future.get();
 			} catch (InterruptedException e) {
 				Thread.currentThread().interrupt();
-				errors.incrementAndGet();
+				ctx.errors.incrementAndGet();
 			} catch (ExecutionException e) {
-				errors.incrementAndGet();
+				ctx.errors.incrementAndGet();
 			}
 		}
 	}
 
 	/**
-	 * Phase 3 — partitions {@code savedEntries} into chunks and processes each chunk in a
+	 * Phase 3 — partitions saved entries into chunks and processes each chunk in a
 	 * dedicated thread, using up to {@code maxThreads} threads as configured in settings.
 	 * For each entry, looks up the registered {@link MediaTagScanner} for its {@link MediaKind}
 	 * and invokes tag scanning.
 	 *
-	 * @param savedEntries entries collected during phase 2
-	 * @param root         the scan root passed through to the scanner for relative path resolution
-	 * @param errors       counter incremented when tag scanning throws
+	 * @param ctx mutable scan state holding the saved entries, scan root, and error counter
 	 */
-	private void runTagScanners(List<FileScanEntry> savedEntries, Path root, AtomicInteger errors) {
-		int total = savedEntries.size();
+	private void runTagScanners(ScanContext ctx) {
+		int total = ctx.savedEntries.size();
 		if (total == 0) {
 			return;
 		}
@@ -254,15 +240,15 @@ public class MediaScanService {
 		List<Future<?>> futures = new ArrayList<>();
 
 		for (int i = 0; i < total; i += chunkSize) {
-			List<FileScanEntry> chunk = savedEntries.subList(i, Math.min(i + chunkSize, total));
+			List<FileScanEntry> chunk = ctx.savedEntries.subList(i, Math.min(i + chunkSize, total));
 			futures.add(executor.submit(() -> {
 				for (FileScanEntry entry : chunk) {
 					MediaTagScanner scanner = tagScanners.get(entry.mediaFile().getKind());
 					if (scanner != null) {
 						try {
-							scanner.scanTags(entry.mediaFile(), entry.filePath(), root);
+							scanner.scanTags(entry.mediaFile(), entry.filePath(), ctx.root);
 						} catch (Exception e) {
-							errors.incrementAndGet();
+							ctx.errors.incrementAndGet();
 						}
 					}
 				}
@@ -275,9 +261,9 @@ public class MediaScanService {
 				future.get();
 			} catch (InterruptedException e) {
 				Thread.currentThread().interrupt();
-				errors.incrementAndGet();
+				ctx.errors.incrementAndGet();
 			} catch (ExecutionException e) {
-				errors.incrementAndGet();
+				ctx.errors.incrementAndGet();
 			}
 		}
 	}
@@ -298,18 +284,14 @@ public class MediaScanService {
 	}
 
 	/**
-	 * Processes a single file during Phase 1: resolves its {@link MediaKind} by
+	 * Processes a single file during Phase 2: resolves its {@link MediaKind} by
 	 * extension, skips it if already indexed, otherwise saves a {@link MediaFile}
-	 * record and adds the entry to {@code savedEntries} for Phase 2 processing.
+	 * record and adds the entry to the context for Phase 3 processing.
 	 *
-	 * @param filePath     the path to the file
-	 * @param savedEntries accumulator for successfully saved entries
-	 * @param added        counter incremented when a {@link MediaFile} is persisted
-	 * @param skipped      counter incremented when the file is already in the database
-	 * @param errors       counter incremented when an exception occurs
+	 * @param filePath the path to the file
+	 * @param ctx      mutable scan state updated as files are processed
 	 */
-	private void scanMediaFile(Path filePath, List<FileScanEntry> savedEntries,
-							   AtomicInteger added, AtomicInteger skipped, AtomicInteger errors) {
+	private void scanMediaFile(Path filePath, ScanContext ctx) {
 		Optional<MediaKind> kindOpt = resolveKind(filePath);
 		if (kindOpt.isEmpty()) {
 			return; // not a recognised media type
@@ -321,17 +303,17 @@ public class MediaScanService {
 				: "";
 
 		if (mediaFileRepository.findByPathAndFilename(parentPath, filename).isPresent()) {
-			skipped.incrementAndGet();
+			ctx.skipped.incrementAndGet();
 			return;
 		}
 
 		try {
 			MediaFile mediaFile = new MediaFile(parentPath, filename, null, kindOpt.get());
 			mediaFileRepository.save(mediaFile);
-			savedEntries.add(new FileScanEntry(mediaFile, filePath));
-			added.incrementAndGet();
+			ctx.savedEntries.add(new FileScanEntry(mediaFile, filePath));
+			ctx.added.incrementAndGet();
 		} catch (Exception e) {
-			errors.incrementAndGet();
+			ctx.errors.incrementAndGet();
 		}
 	}
 
@@ -353,6 +335,42 @@ public class MediaScanService {
 		if (VIDEO_EXTENSIONS.contains(ext)) return Optional.of(MediaKind.VIDEO);
 		if (AUDIO_EXTENSIONS.contains(ext)) return Optional.of(MediaKind.AUDIO);
 		return Optional.empty();
+	}
+
+	/**
+	 * Holds all mutable state for a single scan run.
+	 * A new instance is created per {@link #scanFolder} call, keeping concurrent
+	 * scans isolated from one another.
+	 */
+	private static class ScanContext {
+
+		/** The root directory of this scan, used for relative path resolution in tag scanners. */
+		final Path root;
+
+		/** Count of media files newly added to the database. */
+		final AtomicInteger added = new AtomicInteger(0);
+
+		/** Count of files skipped because they are already indexed. */
+		final AtomicInteger skipped = new AtomicInteger(0);
+
+		/** Count of files or folders that caused an error during processing. */
+		final AtomicInteger errors = new AtomicInteger(0);
+
+		/** Count of folders found to have changes and fully scanned. */
+		final AtomicInteger foldersScanned = new AtomicInteger(0);
+
+		/** Count of folders skipped because they are unchanged since the last scan. */
+		final AtomicInteger foldersSkipped = new AtomicInteger(0);
+
+		/** Accumulated entries for tag-scanning in Phase 3; must be thread-safe. */
+		final List<FileScanEntry> savedEntries = Collections.synchronizedList(new ArrayList<>());
+
+		/**
+		 * @param root the root directory of the scan
+		 */
+		ScanContext(Path root) {
+			this.root = root;
+		}
 	}
 
 	/**
