@@ -114,20 +114,60 @@ public class MediaScanService {
 		AtomicInteger errors = new AtomicInteger(0);
 		AtomicInteger foldersScanned = new AtomicInteger(0);
 		AtomicInteger foldersSkipped = new AtomicInteger(0);
-
 		List<FileScanEntry> savedEntries = new ArrayList<>();
 
-		// Phase 1 — collect directories that contain at least one direct regular file
+		List<Path> leafDirs;
+		try {
+			leafDirs = collectLeafDirs(root);
+		} catch (IOException e) {
+			return new ScanResult(0, 0, 0, 0, 0, "Error walking directory: " + e.getMessage());
+		}
+
+		scanLeafDirectories(leafDirs, savedEntries, added, skipped, errors, foldersScanned, foldersSkipped);
+		runTagScanners(savedEntries, root, errors);
+
+		return new ScanResult(added.get(), skipped.get(), errors.get(),
+				foldersScanned.get(), foldersSkipped.get(),
+				"Scan complete. Added: " + added.get() +
+				", Skipped: " + skipped.get() +
+				", Errors: " + errors.get() +
+				", Folders scanned: " + foldersScanned.get() +
+				", Folders skipped: " + foldersSkipped.get());
+	}
+
+	/**
+	 * Phase 1 — walks {@code root} recursively and collects every directory that
+	 * contains at least one direct regular file.
+	 *
+	 * @param root the root directory to walk
+	 * @return list of directories that contain at least one direct regular file
+	 * @throws IOException if the directory tree cannot be walked
+	 */
+	private List<Path> collectLeafDirs(Path root) throws IOException {
 		List<Path> leafDirs = new ArrayList<>();
 		try (Stream<Path> stream = Files.walk(root)) {
 			stream.filter(Files::isDirectory)
 					.filter(this::containsFiles)
 					.forEach(leafDirs::add);
-		} catch (IOException e) {
-			return new ScanResult(0, 0, 0, 0, 0, "Error walking directory: " + e.getMessage());
 		}
+		return leafDirs;
+	}
 
-		// Phase 2 — for each changed leaf directory, scan its direct files
+	/**
+	 * Phase 2 — for each leaf directory, delegates to {@link FolderService#checkAndSaveFolder}
+	 * to detect changes.  Changed directories have their direct regular files scanned and saved.
+	 *
+	 * @param leafDirs       directories to process
+	 * @param savedEntries   accumulator for successfully saved file entries
+	 * @param added          counter incremented when a {@link MediaFile} is persisted
+	 * @param skipped        counter incremented when a file is already indexed
+	 * @param errors         counter incremented on any exception
+	 * @param foldersScanned counter incremented when a folder has changes and is scanned
+	 * @param foldersSkipped counter incremented when a folder is unchanged
+	 */
+	private void scanLeafDirectories(List<Path> leafDirs, List<FileScanEntry> savedEntries,
+			AtomicInteger added, AtomicInteger skipped, AtomicInteger errors,
+			AtomicInteger foldersScanned, AtomicInteger foldersSkipped) {
 		for (Path leafDir : leafDirs) {
 			boolean hasChanges;
 			try {
@@ -148,8 +188,17 @@ public class MediaScanService {
 				errors.incrementAndGet();
 			}
 		}
+	}
 
-		// Phase 3 — dispatch each saved MediaFile to the appropriate MediaTagScanner
+	/**
+	 * Phase 3 — for each saved entry, looks up the registered {@link MediaTagScanner}
+	 * for its {@link MediaKind} and invokes tag scanning.
+	 *
+	 * @param savedEntries entries collected during phase 2
+	 * @param root         the scan root passed through to the scanner for relative path resolution
+	 * @param errors       counter incremented when tag scanning throws
+	 */
+	private void runTagScanners(List<FileScanEntry> savedEntries, Path root, AtomicInteger errors) {
 		for (FileScanEntry entry : savedEntries) {
 			MediaTagScanner scanner = tagScanners.get(entry.mediaFile().getKind());
 			if (scanner != null) {
@@ -160,14 +209,6 @@ public class MediaScanService {
 				}
 			}
 		}
-
-		return new ScanResult(added.get(), skipped.get(), errors.get(),
-				foldersScanned.get(), foldersSkipped.get(),
-				"Scan complete. Added: " + added.get() +
-				", Skipped: " + skipped.get() +
-				", Errors: " + errors.get() +
-				", Folders scanned: " + foldersScanned.get() +
-				", Folders skipped: " + foldersSkipped.get());
 	}
 
 	/**

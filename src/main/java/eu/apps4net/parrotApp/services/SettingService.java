@@ -29,7 +29,7 @@ public class SettingService {
 
 	/**
 	 * Seeds default settings if they are absent from the database.
-	 * Ensures {@code uploadDir} and {@code defaultActionsLanguage} always exist.
+	 * Ensures {@code uploadDir}, {@code defaultActionsLanguage}, and {@code maxThreads} always exist.
 	 */
 	public void setDefaultSettings() {
 		List<Setting> settings = settingRepository.findAll();
@@ -40,6 +40,10 @@ public class SettingService {
 
 		if (settings.isEmpty() || settingRepository.getBySettingName("defaultActionsLanguage") == null) {
 			settingRepository.save(new Setting("defaultActionsLanguage", "en"));
+		}
+
+		if (settings.isEmpty() || settingRepository.getBySettingName("maxThreads") == null) {
+			settingRepository.save(new Setting("maxThreads", "4"));
 		}
 	}
 
