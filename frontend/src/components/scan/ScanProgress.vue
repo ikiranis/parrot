@@ -4,7 +4,7 @@ import { language } from "@/functions/languageStore.ts"
 import { startScan, getScanStatus } from "@/api/scan.ts"
 import type { ScanJobResponse } from "@/types"
 
-const POLL_INTERVAL_MS = 1_000
+const POLL_INTERVAL_MS = 10_000
 
 const scanState = ref<ScanJobResponse | null>(null)
 const starting = ref(false)

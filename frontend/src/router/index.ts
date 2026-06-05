@@ -9,6 +9,7 @@ import Photos from "@/views/Photos.vue"
 import Folders from "@/views/Folders.vue"
 import LibraryFolders from "@/views/LibraryFolders.vue"
 import LibraryFolder from "@/views/libraryFolder/LibraryFolder.vue"
+import Slideshow from "@/views/Slideshow.vue"
 
 const routes : RouteRecordRaw[] = [
     {
@@ -53,6 +54,11 @@ const routes : RouteRecordRaw[] = [
         name: 'LibraryFolder',
         component: LibraryFolder,
         props: true
+    },
+    {
+        path: '/slideshow',
+        name: 'Slideshow',
+        component: Slideshow
     },
 ]
 

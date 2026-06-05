@@ -391,4 +391,29 @@
         <language code="el">πριν από αυτή τη σάρωση</language>
     </entry>
 
+    <entry id="Slideshow">
+        <language code="en">Slideshow</language>
+        <language code="el">Προβολή Διαφανειών</language>
+    </entry>
+
+    <entry id="Previous">
+        <language code="en">Previous</language>
+        <language code="el">Προηγούμενο</language>
+    </entry>
+
+    <entry id="Next">
+        <language code="en">Next</language>
+        <language code="el">Επόμενο</language>
+    </entry>
+
+    <entry id="Fullscreen">
+        <language code="en">Fullscreen</language>
+        <language code="el">Πλήρης οθόνη</language>
+    </entry>
+
+    <entry id="Exit Fullscreen">
+        <language code="en">Exit Fullscreen</language>
+        <language code="el">Έξοδος πλήρους οθόνης</language>
+    </entry>
+
 </root>

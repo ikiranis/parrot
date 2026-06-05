@@ -1,0 +1,269 @@
+<script setup lang="ts">
+import { ref, Ref, onMounted, onUnmounted } from "vue"
+import { language } from "@/functions/languageStore.ts"
+import { errorStore } from "@/components/error/errorStore.ts"
+import { getPhotos, getPhotoImageUrl } from "@/api/photo.ts"
+import type { MediaFile } from "@/types"
+import Error from "@/components/error/Error.vue"
+
+const navigating = ref(false)
+const totalElements = ref(0)
+const currentPhoto: Ref<MediaFile | null> = ref(null)
+const nextPhoto: Ref<MediaFile | null> = ref(null)
+const slideshowEl: Ref<HTMLElement | null> = ref(null)
+const isFullscreen = ref(false)
+
+onMounted(async () => {
+	window.addEventListener('keydown', handleKeydown)
+	document.addEventListener('fullscreenchange', handleFullscreenChange)
+	await loadRandomPhoto()
+})
+
+onUnmounted(() => {
+	window.removeEventListener('keydown', handleKeydown)
+	document.removeEventListener('fullscreenchange', handleFullscreenChange)
+})
+
+const handleKeydown = (event: KeyboardEvent) => {
+	if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+		loadRandomPhoto()
+	}
+}
+
+const handleFullscreenChange = () => {
+	isFullscreen.value = !!document.fullscreenElement
+}
+
+/** Fetches the next random photo and warms the browser image cache without blocking navigation. */
+const preloadNext = async () => {
+	if (totalElements.value === 0) return
+
+	try {
+		const randomPage = Math.floor(Math.random() * totalElements.value)
+		const result = await getPhotos(randomPage, 1)
+
+		if (result?.content?.length > 0) {
+			const photo = result.content[0] as MediaFile
+			nextPhoto.value = photo
+			const img = new Image()
+			img.src = getPhotoImageUrl(photo.id)
+		}
+	} catch {
+		// best-effort — silently ignore preload errors
+	}
+}
+
+const loadRandomPhoto = async () => {
+	if (navigating.value) return
+	navigating.value = true
+
+	if (nextPhoto.value) {
+		currentPhoto.value = nextPhoto.value
+		nextPhoto.value = null
+		navigating.value = false
+		preloadNext()
+		return
+	}
+
+	try {
+		if (totalElements.value === 0) {
+			const first = await getPhotos(0, 1)
+			totalElements.value = first?.totalElements ?? 0
+		}
+
+		if (totalElements.value === 0) {
+			navigating.value = false
+			return
+		}
+
+		const randomPage = Math.floor(Math.random() * totalElements.value)
+		const result = await getPhotos(randomPage, 1)
+
+		if (result?.content?.length > 0) {
+			currentPhoto.value = result.content[0]
+		}
+	} catch (error: unknown) {
+		const err = error as { response?: { data?: { message?: string; status?: number } }; message?: string }
+		errorStore.set(true, err.response?.data?.message ?? err.message ?? '', err.response?.data?.status ?? 500)
+	}
+
+	navigating.value = false
+	preloadNext()
+}
+
+const toggleFullscreen = async () => {
+	if (!slideshowEl.value) return
+
+	if (!document.fullscreenElement) {
+		await slideshowEl.value.requestFullscreen()
+	} else {
+		await document.exitFullscreen()
+	}
+}
+</script>
+
+<template>
+	<div class="slideshow" ref="slideshowEl">
+		<template v-if="currentPhoto">
+			<img
+				:src="getPhotoImageUrl(currentPhoto.id)"
+				:alt="currentPhoto.filename"
+				class="slideshow__image"
+			/>
+			<div class="slideshow__filename">{{ currentPhoto.filename }}</div>
+		</template>
+
+		<div v-else class="slideshow__empty">
+			{{ language.get("No photos found. Scan a folder to import photos.") }}
+		</div>
+
+		<button
+			class="slideshow__arrow slideshow__arrow--left"
+			@click="loadRandomPhoto"
+			:title="language.get('Previous')"
+			:disabled="navigating"
+		>
+			<svg xmlns="http://www.w3.org/2000/svg" width="32" fill="currentColor" class="bi bi-chevron-left" viewBox="0 0 16 16">
+				<path fill-rule="evenodd" d="M11.354 1.646a.5.5 0 0 1 0 .708L5.707 8l5.647 5.646a.5.5 0 0 1-.708.708l-6-6a.5.5 0 0 1 0-.708l6-6a.5.5 0 0 1 .708 0z"/>
+			</svg>
+		</button>
+
+		<button
+			class="slideshow__arrow slideshow__arrow--right"
+			@click="loadRandomPhoto"
+			:title="language.get('Next')"
+			:disabled="navigating"
+		>
+			<svg xmlns="http://www.w3.org/2000/svg" width="32" fill="currentColor" class="bi bi-chevron-right" viewBox="0 0 16 16">
+				<path fill-rule="evenodd" d="M4.646 1.646a.5.5 0 0 1 .708 0l6 6a.5.5 0 0 1 0 .708l-6 6a.5.5 0 0 1-.708-.708L10.293 8 4.646 2.354a.5.5 0 0 1 0-.708z"/>
+			</svg>
+		</button>
+
+		<button
+			class="slideshow__fullscreen-btn"
+			@click="toggleFullscreen"
+			:title="isFullscreen ? language.get('Exit Fullscreen') : language.get('Fullscreen')"
+		>
+			<svg v-if="!isFullscreen" xmlns="http://www.w3.org/2000/svg" width="20" fill="currentColor" class="bi bi-fullscreen" viewBox="0 0 16 16">
+				<path d="M1.5 1h4a.5.5 0 0 1 0 1h-4a.5.5 0 0 0-.5.5v4a.5.5 0 0 1-1 0v-4A1.5 1.5 0 0 1 1.5 1zm9 0h4A1.5 1.5 0 0 1 16 2.5v4a.5.5 0 0 1-1 0v-4a.5.5 0 0 0-.5-.5h-4a.5.5 0 0 1 0-1zm-10 10.5v4A1.5 1.5 0 0 0 1.5 15h4a.5.5 0 0 0 0-1h-4a.5.5 0 0 1-.5-.5v-4a.5.5 0 0 0-1 0zm9 0a.5.5 0 0 0-1 0v4a.5.5 0 0 0 .5.5h4a.5.5 0 0 0 0-1h-4V11z"/>
+			</svg>
+			<svg v-else xmlns="http://www.w3.org/2000/svg" width="20" fill="currentColor" class="bi bi-fullscreen-exit" viewBox="0 0 16 16">
+				<path d="M5.5 0a.5.5 0 0 1 .5.5v4A1.5 1.5 0 0 1 4.5 6h-4a.5.5 0 0 1 0-1h4a.5.5 0 0 0 .5-.5v-4a.5.5 0 0 1 .5-.5zm5 0a.5.5 0 0 1 .5.5v4a.5.5 0 0 0 .5.5h4a.5.5 0 0 1 0 1h-4A1.5 1.5 0 0 1 10 4.5v-4a.5.5 0 0 1 .5-.5zM0 10.5a.5.5 0 0 1 .5-.5h4A1.5 1.5 0 0 1 6 11.5v4a.5.5 0 0 1-1 0v-4a.5.5 0 0 0-.5-.5h-4a.5.5 0 0 1-.5-.5zm10 1a1.5 1.5 0 0 1 1.5-1.5h4a.5.5 0 0 1 0 1h-4a.5.5 0 0 0-.5.5v4a.5.5 0 0 1-1 0v-4z"/>
+			</svg>
+		</button>
+
+		<Error />
+	</div>
+</template>
+
+<style scoped lang="scss">
+.slideshow {
+	position: relative;
+	background: #111;
+	min-height: calc(100vh - 80px);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	overflow: hidden;
+	border-radius: 4px;
+
+	&:fullscreen,
+	&:-webkit-full-screen {
+		min-height: 100vh;
+		border-radius: 0;
+
+		.slideshow__image {
+			max-height: 100vh;
+		}
+	}
+
+	&__image {
+		max-width: 100%;
+		max-height: calc(100vh - 100px);
+		object-fit: contain;
+		display: block;
+	}
+
+	&__loading {
+		color: white;
+	}
+
+	&__empty {
+		color: rgba(255, 255, 255, 0.6);
+		font-size: 1.1rem;
+	}
+
+	&__filename {
+		position: absolute;
+		bottom: 1.25rem;
+		left: 50%;
+		transform: translateX(-50%);
+		color: rgba(255, 255, 255, 0.75);
+		font-size: 0.85rem;
+		background: rgba(0, 0, 0, 0.55);
+		padding: 0.25rem 0.75rem;
+		border-radius: 4px;
+		max-width: 80%;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	&__arrow {
+		position: absolute;
+		top: 50%;
+		transform: translateY(-50%);
+		background: rgba(255, 255, 255, 0.1);
+		border: 1px solid rgba(255, 255, 255, 0.2);
+		color: white;
+		padding: 0.75rem 1rem;
+		cursor: pointer;
+		border-radius: 6px;
+		opacity: 0;
+		transition: opacity 0.2s, background 0.2s;
+
+		&--left {
+			left: 1rem;
+		}
+
+		&--right {
+			right: 1rem;
+		}
+
+		&:hover:not(:disabled) {
+			background: rgba(255, 255, 255, 0.25);
+		}
+
+		&:disabled {
+			cursor: not-allowed;
+			opacity: 0.3 !important;
+		}
+	}
+
+	&:hover .slideshow__arrow:not(:disabled) {
+		opacity: 1;
+	}
+
+	&__fullscreen-btn {
+		position: absolute;
+		top: 1rem;
+		right: 1rem;
+		background: rgba(255, 255, 255, 0.1);
+		border: 1px solid rgba(255, 255, 255, 0.2);
+		color: white;
+		padding: 0.4rem 0.6rem;
+		cursor: pointer;
+		border-radius: 6px;
+		opacity: 0;
+		transition: opacity 0.2s, background 0.2s;
+
+		&:hover {
+			background: rgba(255, 255, 255, 0.25);
+		}
+	}
+
+	&:hover .slideshow__fullscreen-btn {
+		opacity: 1;
+	}
+}
+</style>
