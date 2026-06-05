@@ -94,6 +94,24 @@ public class SettingService {
 	}
 
 	/**
+	 * Returns the configured maximum number of threads for parallel operations.
+	 * Falls back to {@code 1} if the setting is absent or not a valid integer.
+	 *
+	 * @return the maximum thread count, always &ge; 1
+	 */
+	public int getMaxThreads() {
+		Setting setting = settingRepository.getBySettingName("maxThreads");
+		if (setting == null) {
+			return 1;
+		}
+		try {
+			return Math.max(1, Integer.parseInt(setting.getSettingValue()));
+		} catch (NumberFormatException e) {
+			return 1;
+		}
+	}
+
+	/**
 	 * Validates the proposed value for a given setting name.
 	 * Override this method to add per-field business rules.
 	 *

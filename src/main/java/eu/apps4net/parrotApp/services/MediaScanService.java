@@ -13,11 +13,16 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
 
@@ -58,6 +63,9 @@ public class MediaScanService {
 	/** Service used to check and persist folder records. */
 	private final FolderService folderService;
 
+	/** Service used to read application settings, including {@code maxThreads}. */
+	private final SettingService settingService;
+
 	/**
 	 * Map of {@link MediaKind} to its corresponding {@link MediaTagScanner},
 	 * built from all {@link MediaTagScanner} beans present in the application context.
@@ -71,13 +79,16 @@ public class MediaScanService {
 	 *
 	 * @param mediaFileRepository repository for media file persistence
 	 * @param folderService       service for folder change detection and persistence
+	 * @param settingService      service for reading application settings
 	 * @param scannerList         all registered {@link MediaTagScanner} implementations
 	 */
 	public MediaScanService(MediaFileRepository mediaFileRepository,
 							FolderService folderService,
+							SettingService settingService,
 							List<MediaTagScanner> scannerList) {
 		this.mediaFileRepository = mediaFileRepository;
 		this.folderService = folderService;
+		this.settingService = settingService;
 		this.tagScanners = new EnumMap<>(MediaKind.class);
 		for (MediaTagScanner scanner : scannerList) {
 			tagScanners.put(scanner.getSupportedKind(), scanner);
@@ -114,7 +125,7 @@ public class MediaScanService {
 		AtomicInteger errors = new AtomicInteger(0);
 		AtomicInteger foldersScanned = new AtomicInteger(0);
 		AtomicInteger foldersSkipped = new AtomicInteger(0);
-		List<FileScanEntry> savedEntries = new ArrayList<>();
+		List<FileScanEntry> savedEntries = Collections.synchronizedList(new ArrayList<>());
 
 		List<Path> leafDirs;
 		try {
@@ -154,11 +165,13 @@ public class MediaScanService {
 	}
 
 	/**
-	 * Phase 2 — for each leaf directory, delegates to {@link FolderService#checkAndSaveFolder}
-	 * to detect changes.  Changed directories have their direct regular files scanned and saved.
+	 * Phase 2 — partitions {@code leafDirs} into chunks and processes each chunk in a
+	 * dedicated thread, using up to {@code maxThreads} threads as configured in settings.
+	 * For each directory, delegates to {@link FolderService#checkAndSaveFolder} to detect
+	 * changes; changed directories have their direct regular files scanned and saved.
 	 *
 	 * @param leafDirs       directories to process
-	 * @param savedEntries   accumulator for successfully saved file entries
+	 * @param savedEntries   thread-safe accumulator for successfully saved file entries
 	 * @param added          counter incremented when a {@link MediaFile} is persisted
 	 * @param skipped        counter incremented when a file is already indexed
 	 * @param errors         counter incremented on any exception
@@ -168,23 +181,51 @@ public class MediaScanService {
 	private void scanLeafDirectories(List<Path> leafDirs, List<FileScanEntry> savedEntries,
 			AtomicInteger added, AtomicInteger skipped, AtomicInteger errors,
 			AtomicInteger foldersScanned, AtomicInteger foldersSkipped) {
-		for (Path leafDir : leafDirs) {
-			boolean hasChanges;
+		int total = leafDirs.size();
+		if (total == 0) {
+			return;
+		}
+
+		int threads = Math.min(settingService.getMaxThreads(), total);
+		int chunkSize = (int) Math.ceil((double) total / threads);
+
+		ExecutorService executor = Executors.newFixedThreadPool(threads);
+		List<Future<?>> futures = new ArrayList<>();
+
+		for (int i = 0; i < total; i += chunkSize) {
+			List<Path> chunk = leafDirs.subList(i, Math.min(i + chunkSize, total));
+			futures.add(executor.submit(() -> {
+				for (Path leafDir : chunk) {
+					boolean hasChanges;
+					try {
+						hasChanges = folderService.checkAndSaveFolder(leafDir);
+					} catch (IOException e) {
+						errors.incrementAndGet();
+						continue;
+					}
+					if (!hasChanges) {
+						foldersSkipped.incrementAndGet();
+						continue;
+					}
+					foldersScanned.incrementAndGet();
+					try (Stream<Path> files = Files.list(leafDir)) {
+						files.filter(Files::isRegularFile)
+								.forEach(filePath -> scanMediaFile(filePath, savedEntries, added, skipped, errors));
+					} catch (IOException e) {
+						errors.incrementAndGet();
+					}
+				}
+			}));
+		}
+
+		executor.shutdown();
+		for (Future<?> future : futures) {
 			try {
-				hasChanges = folderService.checkAndSaveFolder(leafDir);
-			} catch (IOException e) {
+				future.get();
+			} catch (InterruptedException e) {
+				Thread.currentThread().interrupt();
 				errors.incrementAndGet();
-				continue;
-			}
-			if (!hasChanges) {
-				foldersSkipped.incrementAndGet();
-				continue;
-			}
-			foldersScanned.incrementAndGet();
-			try (Stream<Path> files = Files.list(leafDir)) {
-				files.filter(Files::isRegularFile)
-						.forEach(filePath -> scanMediaFile(filePath, savedEntries, added, skipped, errors));
-			} catch (IOException e) {
+			} catch (ExecutionException e) {
 				errors.incrementAndGet();
 			}
 		}
