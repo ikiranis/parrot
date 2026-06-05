@@ -166,7 +166,6 @@ public class MediaScanService {
 		int totalAdded = 0, totalSkipped = 0, totalErrors = 0, totalFoldersScanned = 0, totalFoldersSkipped = 0;
 
 		for (LibraryFolder libraryFolder : libraryFolders) {
-			System.out.println("Scanning library folder: " + libraryFolder.getPath());
 			ScanResult result = scanFolder(libraryFolder.getPath());
 			totalAdded += result.added();
 			totalSkipped += result.skipped();
