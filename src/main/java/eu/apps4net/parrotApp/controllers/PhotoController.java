@@ -102,6 +102,19 @@ public class PhotoController {
 	}
 
 	/**
+	 * Returns a single randomly selected photo from the database.
+	 * Delegates randomisation to the database via a native Derby {@code ORDER BY RAND()} query.
+	 *
+	 * @return 200 with the {@link MediaFile}, or 204 No Content if no photos exist
+	 */
+	@GetMapping("random")
+	public ResponseEntity<MediaFile> getRandomPhoto() {
+		return mediaFileRepository.findRandomByKind(MediaKind.IMAGE.name())
+				.map(ResponseEntity::ok)
+				.orElseGet(() -> ResponseEntity.noContent().build());
+	}
+
+	/**
 	 * Returns the detail view for a single photo, combining its {@link MediaFile}
 	 * record with the associated {@link eu.apps4net.parrotApp.models.PhotoTag} if one exists.
 	 *

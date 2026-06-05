@@ -2,12 +2,11 @@
 import { ref, Ref, onMounted, onUnmounted } from "vue"
 import { language } from "@/functions/languageStore.ts"
 import { errorStore } from "@/components/error/errorStore.ts"
-import { getPhotos, getPhotoImageUrl } from "@/api/photo.ts"
+import { getRandomPhoto, getPhotoImageUrl } from "@/api/photo.ts"
 import type { MediaFile } from "@/types"
 import Error from "@/components/error/Error.vue"
 
 const navigating = ref(false)
-const totalElements = ref(0)
 const currentPhoto: Ref<MediaFile | null> = ref(null)
 const nextPhoto: Ref<MediaFile | null> = ref(null)
 const slideshowEl: Ref<HTMLElement | null> = ref(null)
@@ -32,14 +31,9 @@ const handleFullscreenChange = () => {
 
 /** Fetches the next random photo and warms the browser image cache without blocking navigation. */
 const preloadNext = async () => {
-	if (totalElements.value === 0) return
-
 	try {
-		const randomPage = Math.floor(Math.random() * totalElements.value)
-		const result = await getPhotos(randomPage, 1)
-
-		if (result?.content?.length > 0) {
-			const photo = result.content[0] as MediaFile
+		const photo = await getRandomPhoto()
+		if (photo) {
 			nextPhoto.value = photo
 			const img = new Image()
 			img.src = getPhotoImageUrl(photo.id)
@@ -73,18 +67,7 @@ const navigateForward = async () => {
 		nextPhoto.value = null
 	} else {
 		try {
-			if (totalElements.value === 0) {
-				const first = await getPhotos(0, 1)
-				totalElements.value = first?.totalElements ?? 0
-			}
-
-			if (totalElements.value > 0) {
-				const randomPage = Math.floor(Math.random() * totalElements.value)
-				const result = await getPhotos(randomPage, 1)
-				if (result?.content?.length > 0) {
-					photo = result.content[0] as MediaFile
-				}
-			}
+			photo = await getRandomPhoto()
 		} catch (error: unknown) {
 			const err = error as { response?: { data?: { message?: string; status?: number } }; message?: string }
 			errorStore.set(true, err.response?.data?.message ?? err.message ?? '', err.response?.data?.status ?? 500)

@@ -91,6 +91,19 @@ export const getPhotoById = async (id: number): Promise<PhotoDetail> => {
 }
 
 /**
+ * Returns a single randomly selected photo from the library.
+ * Returns `null` when the library is empty (HTTP 204).
+ *
+ * @returns a {@link MediaFile} or `null`
+ */
+export const getRandomPhoto = async (): Promise<import("@/types").MediaFile | null> => {
+    const response = await axios.get(config.defaultServer() + '/api/photos/random', {
+        validateStatus: (s) => s === 200 || s === 204
+    })
+    return response.status === 200 ? response.data : null
+}
+
+/**
  * Returns the URL that serves the raw image bytes for the given photo id.
  *
  * @param id the primary key of the media file
