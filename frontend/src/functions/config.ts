@@ -16,12 +16,13 @@ const languages: Array<Language> = [
     ]
 
 /**
- * Returns the base URL of the backend API server.
+ * Returns the base URL of the backend API server, using the same host
+ * that loaded the frontend page so remote machines resolve correctly.
  *
- * @returns the server origin, e.g. `"http://localhost:9999"`
+ * @returns the server origin, e.g. `"http://192.168.1.10:9999"`
  */
 const defaultServer = () => {
-    return 'http://localhost:9999'
+    return `${window.location.protocol}//${window.location.hostname}:9999`
 }
 
 /**
