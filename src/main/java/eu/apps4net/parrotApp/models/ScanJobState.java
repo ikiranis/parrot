@@ -40,6 +40,9 @@ public class ScanJobState {
 	/** Number of leaf directories skipped because their hash was unchanged. */
 	private final AtomicInteger foldersSkipped = new AtomicInteger();
 
+	/** Number of media files whose tags have been read and persisted in Phase 3. */
+	private final AtomicInteger tagged = new AtomicInteger();
+
 	/** Human-readable status message updated on completion or failure. */
 	private volatile String message = "Scan in progress...";
 
@@ -107,6 +110,13 @@ public class ScanJobState {
 	}
 
 	/**
+	 * @return number of files that have been through the tag scanner so far
+	 */
+	public int getTagged() {
+		return tagged.get();
+	}
+
+	/**
 	 * @return current human-readable status message
 	 */
 	public String getMessage() {
@@ -136,6 +146,11 @@ public class ScanJobState {
 	/** Increments the skipped-folders counter by one. */
 	public void incrementFoldersSkipped() {
 		foldersSkipped.incrementAndGet();
+	}
+
+	/** Increments the tagged-files counter by one. */
+	public void incrementTagged() {
+		tagged.incrementAndGet();
 	}
 
 	/**

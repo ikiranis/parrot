@@ -17,6 +17,7 @@ import java.util.UUID;
  * @param errors         number of files or folders that produced an error
  * @param foldersScanned number of leaf directories fully scanned
  * @param foldersSkipped number of leaf directories skipped as unchanged
+ * @param tagged         number of files whose tags have been read in Phase 3
  * @param message        human-readable status message
  */
 public record ScanJobResponse(
@@ -29,6 +30,7 @@ public record ScanJobResponse(
 		int errors,
 		int foldersScanned,
 		int foldersSkipped,
+		int tagged,
 		String message
 ) {
 
@@ -39,7 +41,7 @@ public record ScanJobResponse(
 	 */
 	public static ScanJobResponse idle() {
 		return new ScanJobResponse(null, ScanStatus.IDLE, null, null,
-				0, 0, 0, 0, 0, "No scan has been run yet");
+				0, 0, 0, 0, 0, 0, "No scan has been run yet");
 	}
 
 	/**
@@ -59,6 +61,7 @@ public record ScanJobResponse(
 				state.getErrors(),
 				state.getFoldersScanned(),
 				state.getFoldersSkipped(),
+				state.getTagged(),
 				state.getMessage()
 		);
 	}

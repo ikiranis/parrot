@@ -111,6 +111,7 @@ export type ScanJobResponse = {
 	errors: number
 	foldersScanned: number
 	foldersSkipped: number
+	tagged: number
 	message: string
 }
 

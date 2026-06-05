@@ -338,6 +338,7 @@ public class MediaScanService {
 							ctx.incrementErrors();
 						}
 					}
+					ctx.incrementTagged();
 				}
 			}));
 		}
@@ -489,6 +490,10 @@ public class MediaScanService {
 		void incrementFoldersSkipped() {
 			foldersSkipped.incrementAndGet();
 			if (jobState != null) jobState.incrementFoldersSkipped();
+		}
+
+		void incrementTagged() {
+			if (jobState != null) jobState.incrementTagged();
 		}
 	}
 

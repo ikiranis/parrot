@@ -4,7 +4,7 @@ import { language } from "@/functions/languageStore.ts"
 import { startScan, getScanStatus } from "@/api/scan.ts"
 import type { ScanJobResponse } from "@/types"
 
-const POLL_INTERVAL_MS = 10_000
+const POLL_INTERVAL_MS = 1_000
 
 const scanState = ref<ScanJobResponse | null>(null)
 const starting = ref(false)
@@ -146,6 +146,14 @@ const formatDate = (iso: string): string => {
 					<div class="border rounded p-2 text-center">
 						<div class="fs-5 fw-bold text-secondary">{{ scanState.foldersSkipped }}</div>
 						<div class="small text-muted">{{ language.get("Folders Skipped") }}</div>
+					</div>
+				</div>
+				<div class="col-6 col-md-4">
+					<div class="border rounded p-2 text-center">
+						<div class="fs-5 fw-bold text-primary">
+							{{ scanState.tagged }} / {{ scanState.added }}
+						</div>
+						<div class="small text-muted">{{ language.get("Tags Read") }}</div>
 					</div>
 				</div>
 			</div>
