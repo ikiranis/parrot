@@ -232,22 +232,52 @@ public class MediaScanService {
 	}
 
 	/**
-	 * Phase 3 — for each saved entry, looks up the registered {@link MediaTagScanner}
-	 * for its {@link MediaKind} and invokes tag scanning.
+	 * Phase 3 — partitions {@code savedEntries} into chunks and processes each chunk in a
+	 * dedicated thread, using up to {@code maxThreads} threads as configured in settings.
+	 * For each entry, looks up the registered {@link MediaTagScanner} for its {@link MediaKind}
+	 * and invokes tag scanning.
 	 *
 	 * @param savedEntries entries collected during phase 2
 	 * @param root         the scan root passed through to the scanner for relative path resolution
 	 * @param errors       counter incremented when tag scanning throws
 	 */
 	private void runTagScanners(List<FileScanEntry> savedEntries, Path root, AtomicInteger errors) {
-		for (FileScanEntry entry : savedEntries) {
-			MediaTagScanner scanner = tagScanners.get(entry.mediaFile().getKind());
-			if (scanner != null) {
-				try {
-					scanner.scanTags(entry.mediaFile(), entry.filePath(), root);
-				} catch (Exception e) {
-					errors.incrementAndGet();
+		int total = savedEntries.size();
+		if (total == 0) {
+			return;
+		}
+
+		int threads = Math.min(settingService.getMaxThreads(), total);
+		int chunkSize = (int) Math.ceil((double) total / threads);
+
+		ExecutorService executor = Executors.newFixedThreadPool(threads);
+		List<Future<?>> futures = new ArrayList<>();
+
+		for (int i = 0; i < total; i += chunkSize) {
+			List<FileScanEntry> chunk = savedEntries.subList(i, Math.min(i + chunkSize, total));
+			futures.add(executor.submit(() -> {
+				for (FileScanEntry entry : chunk) {
+					MediaTagScanner scanner = tagScanners.get(entry.mediaFile().getKind());
+					if (scanner != null) {
+						try {
+							scanner.scanTags(entry.mediaFile(), entry.filePath(), root);
+						} catch (Exception e) {
+							errors.incrementAndGet();
+						}
+					}
 				}
+			}));
+		}
+
+		executor.shutdown();
+		for (Future<?> future : futures) {
+			try {
+				future.get();
+			} catch (InterruptedException e) {
+				Thread.currentThread().interrupt();
+				errors.incrementAndGet();
+			} catch (ExecutionException e) {
+				errors.incrementAndGet();
 			}
 		}
 	}
