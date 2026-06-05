@@ -11,9 +11,12 @@ import eu.apps4net.parrotApp.repositories.MediaFileRepository;
 import eu.apps4net.parrotApp.services.tagscanner.MediaTagScanner;
 
 import java.io.IOException;
+import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.SimpleFileVisitor;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.EnumMap;
@@ -232,17 +235,38 @@ public class MediaScanService {
 	 * Phase 1 — walks {@code root} recursively and collects every directory that
 	 * contains at least one direct regular file.
 	 *
+	 * Directories whose names start with {@code #} (e.g. {@code #recycle}, {@code #snapshot})
+	 * are skipped entirely, as are any directories that cannot be accessed.
+	 *
 	 * @param root the root directory to walk
 	 * @return list of directories that contain at least one direct regular file
 	 * @throws IOException if the directory tree cannot be walked
 	 */
 	private List<Path> collectLeafDirs(Path root) throws IOException {
 		List<Path> leafDirs = new ArrayList<>();
-		try (Stream<Path> stream = Files.walk(root)) {
-			stream.filter(Files::isDirectory)
-					.filter(this::containsFiles)
-					.forEach(leafDirs::add);
-		}
+		Files.walkFileTree(root, new SimpleFileVisitor<Path>() {
+			@Override
+			public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) {
+				String name = dir.getFileName() != null ? dir.getFileName().toString() : "";
+				if (name.startsWith("#")) {
+					return FileVisitResult.SKIP_SUBTREE;
+				}
+				return FileVisitResult.CONTINUE;
+			}
+
+			@Override
+			public FileVisitResult visitFileFailed(Path file, IOException exc) {
+				return FileVisitResult.SKIP_SUBTREE;
+			}
+
+			@Override
+			public FileVisitResult postVisitDirectory(Path dir, IOException exc) {
+				if (exc == null && containsFiles(dir)) {
+					leafDirs.add(dir);
+				}
+				return FileVisitResult.CONTINUE;
+			}
+		});
 		return leafDirs;
 	}
 
