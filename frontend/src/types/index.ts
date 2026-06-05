@@ -97,3 +97,20 @@ export type Setting = {
 	settingValue: string
 }
 
+/** Lifecycle states for a background library scan job. */
+export type ScanStatus = 'IDLE' | 'RUNNING' | 'COMPLETED' | 'FAILED'
+
+/** Response from the background scan API endpoints. */
+export type ScanJobResponse = {
+	jobId: string | null
+	status: ScanStatus
+	startedAt: string | null
+	completedAt: string | null
+	added: number
+	skipped: number
+	errors: number
+	foldersScanned: number
+	foldersSkipped: number
+	message: string
+}
+

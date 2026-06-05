@@ -5,6 +5,7 @@ import org.springframework.stereotype.Service;
 import eu.apps4net.parrotApp.models.LibraryFolder;
 import eu.apps4net.parrotApp.models.MediaFile;
 import eu.apps4net.parrotApp.models.MediaKind;
+import eu.apps4net.parrotApp.models.ScanJobState;
 import eu.apps4net.parrotApp.models.ScanResult;
 import eu.apps4net.parrotApp.repositories.MediaFileRepository;
 import eu.apps4net.parrotApp.services.tagscanner.MediaTagScanner;
@@ -39,6 +40,9 @@ import java.util.stream.Stream;
  *    new file.  Already-indexed files are skipped.
  * 3. Tag scan – dispatches each saved {@link MediaFile} to the appropriate
  *    {@link MediaTagScanner} implementation based on its {@link MediaKind}.
+ *
+ * When called with a {@link ScanJobState}, each counter increment is mirrored into
+ * the job state so that background scans expose live progress over the REST API.
  */
 @Service
 public class MediaScanService {
@@ -117,40 +121,12 @@ public class MediaScanService {
 	 * @return {@link ScanResult} with counts of added, skipped, and errored files
 	 */
 	public ScanResult scanFolder(String folderPath) {
-		Path root = Paths.get(folderPath);
-
-		if (!Files.exists(root)) {
-			return new ScanResult(0, 0, 0, 0, 0, "Folder does not exist: " + folderPath);
-		}
-
-		if (!Files.isDirectory(root)) {
-			return new ScanResult(0, 0, 0, 0, 0, "Path is not a directory: " + folderPath);
-		}
-
-		ScanContext ctx = new ScanContext(root);
-
-		List<Path> leafDirs;
-		try {
-			leafDirs = collectLeafDirs(root);
-		} catch (IOException e) {
-			return new ScanResult(0, 0, 0, 0, 0, "Error walking directory: " + e.getMessage());
-		}
-
-		scanLeafDirectories(leafDirs, ctx);
-		runTagScanners(ctx);
-
-		return new ScanResult(ctx.added.get(), ctx.skipped.get(), ctx.errors.get(),
-				ctx.foldersScanned.get(), ctx.foldersSkipped.get(),
-				"Scan complete. Added: " + ctx.added.get() +
-				", Skipped: " + ctx.skipped.get() +
-				", Errors: " + ctx.errors.get() +
-				", Folders scanned: " + ctx.foldersScanned.get() +
-				", Folders skipped: " + ctx.foldersSkipped.get());
+		return scanFolder(folderPath, null);
 	}
 
 	/**
-	 * Scans all configured {@link eu.apps4net.parrotApp.models.LibraryFolder} paths and
-	 * aggregates the results into a single {@link ScanResult}.
+	 * Scans all configured {@link LibraryFolder} paths and aggregates the results
+	 * into a single {@link ScanResult}.
 	 * Each library folder is scanned independently via {@link #scanFolder(String)}.
 	 *
 	 * @return aggregated {@link ScanResult} across all library folders, or a no-op result
@@ -180,6 +156,76 @@ public class MediaScanService {
 				", Errors: " + totalErrors +
 				", Folders scanned: " + totalFoldersScanned +
 				", Folders skipped: " + totalFoldersSkipped);
+	}
+
+	/**
+	 * Scans all configured {@link LibraryFolder} paths in the background, writing live
+	 * progress into the provided {@link ScanJobState} as each file and folder is processed.
+	 * Marks the job state as completed or failed when the scan finishes.
+	 * Intended to be called from {@link ScanJobService} on a background thread.
+	 *
+	 * @param state the job state to update throughout the scan
+	 */
+	void scanLibraryFolders(ScanJobState state) {
+		List<LibraryFolder> libraryFolders = libraryFolderService.getAll();
+
+		if (libraryFolders.isEmpty()) {
+			state.complete("No library folders configured");
+			return;
+		}
+
+		try {
+			for (LibraryFolder libraryFolder : libraryFolders) {
+				scanFolder(libraryFolder.getPath(), state);
+			}
+			state.complete("Scan complete. Added: " + state.getAdded() +
+					", Skipped: " + state.getSkipped() +
+					", Errors: " + state.getErrors() +
+					", Folders scanned: " + state.getFoldersScanned() +
+					", Folders skipped: " + state.getFoldersSkipped());
+		} catch (Exception e) {
+			state.fail("Scan failed: " + e.getMessage());
+		}
+	}
+
+	/**
+	 * Scans the given folder recursively, mirroring each counter increment into
+	 * {@code jobState} when provided so that background scans expose live progress.
+	 *
+	 * @param folderPath absolute path to the root folder to scan
+	 * @param jobState   job state to update in real time, or {@code null} for synchronous scans
+	 * @return {@link ScanResult} with counts of added, skipped, and errored files
+	 */
+	private ScanResult scanFolder(String folderPath, ScanJobState jobState) {
+		Path root = Paths.get(folderPath);
+
+		if (!Files.exists(root)) {
+			return new ScanResult(0, 0, 0, 0, 0, "Folder does not exist: " + folderPath);
+		}
+
+		if (!Files.isDirectory(root)) {
+			return new ScanResult(0, 0, 0, 0, 0, "Path is not a directory: " + folderPath);
+		}
+
+		ScanContext ctx = new ScanContext(root, jobState);
+
+		List<Path> leafDirs;
+		try {
+			leafDirs = collectLeafDirs(root);
+		} catch (IOException e) {
+			return new ScanResult(0, 0, 0, 0, 0, "Error walking directory: " + e.getMessage());
+		}
+
+		scanLeafDirectories(leafDirs, ctx);
+		runTagScanners(ctx);
+
+		return new ScanResult(ctx.added.get(), ctx.skipped.get(), ctx.errors.get(),
+				ctx.foldersScanned.get(), ctx.foldersSkipped.get(),
+				"Scan complete. Added: " + ctx.added.get() +
+				", Skipped: " + ctx.skipped.get() +
+				", Errors: " + ctx.errors.get() +
+				", Folders scanned: " + ctx.foldersScanned.get() +
+				", Folders skipped: " + ctx.foldersSkipped.get());
 	}
 
 	/**
@@ -229,19 +275,19 @@ public class MediaScanService {
 					try {
 						hasChanges = folderService.checkAndSaveFolder(leafDir);
 					} catch (IOException e) {
-						ctx.errors.incrementAndGet();
+						ctx.incrementErrors();
 						continue;
 					}
 					if (!hasChanges) {
-						ctx.foldersSkipped.incrementAndGet();
+						ctx.incrementFoldersSkipped();
 						continue;
 					}
-					ctx.foldersScanned.incrementAndGet();
+					ctx.incrementFoldersScanned();
 					try (Stream<Path> files = Files.list(leafDir)) {
 						files.filter(Files::isRegularFile)
 								.forEach(filePath -> scanMediaFile(filePath, ctx));
 					} catch (IOException e) {
-						ctx.errors.incrementAndGet();
+						ctx.incrementErrors();
 					}
 				}
 			}));
@@ -253,9 +299,9 @@ public class MediaScanService {
 				future.get();
 			} catch (InterruptedException e) {
 				Thread.currentThread().interrupt();
-				ctx.errors.incrementAndGet();
+				ctx.incrementErrors();
 			} catch (ExecutionException e) {
-				ctx.errors.incrementAndGet();
+				ctx.incrementErrors();
 			}
 		}
 	}
@@ -289,7 +335,7 @@ public class MediaScanService {
 						try {
 							scanner.scanTags(entry.mediaFile(), entry.filePath(), ctx.root);
 						} catch (Exception e) {
-							ctx.errors.incrementAndGet();
+							ctx.incrementErrors();
 						}
 					}
 				}
@@ -302,9 +348,9 @@ public class MediaScanService {
 				future.get();
 			} catch (InterruptedException e) {
 				Thread.currentThread().interrupt();
-				ctx.errors.incrementAndGet();
+				ctx.incrementErrors();
 			} catch (ExecutionException e) {
-				ctx.errors.incrementAndGet();
+				ctx.incrementErrors();
 			}
 		}
 	}
@@ -344,7 +390,7 @@ public class MediaScanService {
 				: "";
 
 		if (mediaFileRepository.findByPathAndFilename(parentPath, filename).isPresent()) {
-			ctx.skipped.incrementAndGet();
+			ctx.incrementSkipped();
 			return;
 		}
 
@@ -352,9 +398,9 @@ public class MediaScanService {
 			MediaFile mediaFile = new MediaFile(parentPath, filename, null, kindOpt.get());
 			mediaFileRepository.save(mediaFile);
 			ctx.savedEntries.add(new FileScanEntry(mediaFile, filePath));
-			ctx.added.incrementAndGet();
+			ctx.incrementAdded();
 		} catch (Exception e) {
-			ctx.errors.incrementAndGet();
+			ctx.incrementErrors();
 		}
 	}
 
@@ -380,13 +426,18 @@ public class MediaScanService {
 
 	/**
 	 * Holds all mutable state for a single scan run.
-	 * A new instance is created per {@link #scanFolder} call, keeping concurrent
-	 * scans isolated from one another.
+	 * A new instance is created per {@link #scanFolder(String, ScanJobState)} call, keeping
+	 * concurrent scans isolated from one another.
+	 * When a {@link ScanJobState} is supplied, every counter increment is mirrored into
+	 * it so that background scans expose live progress over the REST API.
 	 */
 	private static class ScanContext {
 
 		/** The root directory of this scan, used for relative path resolution in tag scanners. */
 		final Path root;
+
+		/** Optional job state to mirror every counter update into for live progress reporting. */
+		private final ScanJobState jobState;
 
 		/** Count of media files newly added to the database. */
 		final AtomicInteger added = new AtomicInteger(0);
@@ -407,10 +458,37 @@ public class MediaScanService {
 		final List<FileScanEntry> savedEntries = Collections.synchronizedList(new ArrayList<>());
 
 		/**
-		 * @param root the root directory of the scan
+		 * @param root     the root directory of the scan
+		 * @param jobState optional job state to mirror increments into; may be {@code null}
 		 */
-		ScanContext(Path root) {
+		ScanContext(Path root, ScanJobState jobState) {
 			this.root = root;
+			this.jobState = jobState;
+		}
+
+		void incrementAdded() {
+			added.incrementAndGet();
+			if (jobState != null) jobState.incrementAdded();
+		}
+
+		void incrementSkipped() {
+			skipped.incrementAndGet();
+			if (jobState != null) jobState.incrementSkipped();
+		}
+
+		void incrementErrors() {
+			errors.incrementAndGet();
+			if (jobState != null) jobState.incrementErrors();
+		}
+
+		void incrementFoldersScanned() {
+			foldersScanned.incrementAndGet();
+			if (jobState != null) jobState.incrementFoldersScanned();
+		}
+
+		void incrementFoldersSkipped() {
+			foldersSkipped.incrementAndGet();
+			if (jobState != null) jobState.incrementFoldersSkipped();
 		}
 	}
 

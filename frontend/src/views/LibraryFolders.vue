@@ -7,6 +7,7 @@ import type { LibraryFolder } from "@/types"
 import router from "@/router"
 import Error from "@/components/error/Error.vue"
 import Loading from "@/components/utilities/Loading.vue"
+import ScanProgress from "@/components/scan/ScanProgress.vue"
 
 const loading = ref(false)
 const folders: Ref<LibraryFolder[]> = ref([])
@@ -116,6 +117,8 @@ const onDelete = async (id: number) => {
 		<div v-if="!loading && folders.length === 0" class="text-muted mt-3">
 			{{ language.get("No library folders configured. Add a folder to start scanning for media.") }}
 		</div>
+
+		<ScanProgress />
 
 		<Error />
 	</div>
