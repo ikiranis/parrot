@@ -2,6 +2,7 @@ package eu.apps4net.parrotApp.services;
 
 import org.springframework.stereotype.Service;
 
+import eu.apps4net.parrotApp.models.LibraryFolder;
 import eu.apps4net.parrotApp.models.MediaFile;
 import eu.apps4net.parrotApp.models.MediaKind;
 import eu.apps4net.parrotApp.models.ScanResult;
@@ -66,6 +67,9 @@ public class MediaScanService {
 	/** Service used to read application settings, including {@code maxThreads}. */
 	private final SettingService settingService;
 
+	/** Service used to retrieve the configured library folder paths. */
+	private final LibraryFolderService libraryFolderService;
+
 	/**
 	 * Map of {@link MediaKind} to its corresponding {@link MediaTagScanner},
 	 * built from all {@link MediaTagScanner} beans present in the application context.
@@ -77,18 +81,21 @@ public class MediaScanService {
 	 * All {@link MediaTagScanner} beans in the context are collected and indexed by
 	 * their supported {@link MediaKind}.
 	 *
-	 * @param mediaFileRepository repository for media file persistence
-	 * @param folderService       service for folder change detection and persistence
-	 * @param settingService      service for reading application settings
-	 * @param scannerList         all registered {@link MediaTagScanner} implementations
+	 * @param mediaFileRepository   repository for media file persistence
+	 * @param folderService         service for folder change detection and persistence
+	 * @param settingService        service for reading application settings
+	 * @param libraryFolderService  service for retrieving configured library folder paths
+	 * @param scannerList           all registered {@link MediaTagScanner} implementations
 	 */
 	public MediaScanService(MediaFileRepository mediaFileRepository,
 							FolderService folderService,
 							SettingService settingService,
+							LibraryFolderService libraryFolderService,
 							List<MediaTagScanner> scannerList) {
 		this.mediaFileRepository = mediaFileRepository;
 		this.folderService = folderService;
 		this.settingService = settingService;
+		this.libraryFolderService = libraryFolderService;
 		this.tagScanners = new EnumMap<>(MediaKind.class);
 		for (MediaTagScanner scanner : scannerList) {
 			tagScanners.put(scanner.getSupportedKind(), scanner);
@@ -139,6 +146,41 @@ public class MediaScanService {
 				", Errors: " + ctx.errors.get() +
 				", Folders scanned: " + ctx.foldersScanned.get() +
 				", Folders skipped: " + ctx.foldersSkipped.get());
+	}
+
+	/**
+	 * Scans all configured {@link eu.apps4net.parrotApp.models.LibraryFolder} paths and
+	 * aggregates the results into a single {@link ScanResult}.
+	 * Each library folder is scanned independently via {@link #scanFolder(String)}.
+	 *
+	 * @return aggregated {@link ScanResult} across all library folders, or a no-op result
+	 *         if no library folders are configured
+	 */
+	public ScanResult scanLibraryFolders() {
+		List<LibraryFolder> libraryFolders = libraryFolderService.getAll();
+
+		if (libraryFolders.isEmpty()) {
+			return new ScanResult(0, 0, 0, 0, 0, "No library folders configured");
+		}
+
+		int totalAdded = 0, totalSkipped = 0, totalErrors = 0, totalFoldersScanned = 0, totalFoldersSkipped = 0;
+
+		for (LibraryFolder libraryFolder : libraryFolders) {
+			System.out.println("Scanning library folder: " + libraryFolder.getPath());
+			ScanResult result = scanFolder(libraryFolder.getPath());
+			totalAdded += result.added();
+			totalSkipped += result.skipped();
+			totalErrors += result.errors();
+			totalFoldersScanned += result.foldersScanned();
+			totalFoldersSkipped += result.foldersSkipped();
+		}
+
+		return new ScanResult(totalAdded, totalSkipped, totalErrors, totalFoldersScanned, totalFoldersSkipped,
+				"Scan complete. Added: " + totalAdded +
+				", Skipped: " + totalSkipped +
+				", Errors: " + totalErrors +
+				", Folders scanned: " + totalFoldersScanned +
+				", Folders skipped: " + totalFoldersSkipped);
 	}
 
 	/**

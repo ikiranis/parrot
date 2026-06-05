@@ -77,6 +77,16 @@ public class PhotoController {
 	}
 
 	/**
+	 * Triggers a recursive scan of all configured library folders for image files.
+	 *
+	 * @return aggregated {@link ScanResult} across all library folders
+	 */
+	@PostMapping("scan-library")
+	public ScanResult scanLibraryFolders() {
+		return mediaScanService.scanLibraryFolders();
+	}
+
+	/**
 	 * Returns a paginated list of all photo media files, newest first.
 	 *
 	 * @param page zero-based page index (default {@code 0})

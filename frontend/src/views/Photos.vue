@@ -2,13 +2,12 @@
 import { ref, Ref, onMounted } from "vue"
 import { language } from "@/functions/languageStore.ts"
 import { errorStore } from "@/components/error/errorStore.ts"
-import { scanFolder, getPhotos, clearLibrary } from "@/api/photo.ts"
+import { scanLibraryFolders, getPhotos, clearLibrary } from "@/api/photo.ts"
 import { ScanResult, MediaFile } from "@/types"
 import Error from "@/components/error/Error.vue"
 import Loading from "@/components/utilities/Loading.vue"
 import PhotoDetail from "@/components/PhotoDetail.vue"
 
-const folderPath = ref("")
 const scanning = ref(false)
 const loadingPhotos = ref(false)
 const clearing = ref(false)
@@ -24,12 +23,10 @@ onMounted(() => {
 })
 
 const onScan = async () => {
-    if (!folderPath.value.trim()) return
-
     scanResult.value = null
     scanning.value = true
 
-    await scanFolder(folderPath.value.trim())
+    await scanLibraryFolders()
         .then((result: ScanResult | undefined) => {
             if (result) scanResult.value = result
             loadPhotos()
@@ -96,28 +93,12 @@ const onClearLibrary = async () => {
             </button>
         </div>
 
-        <!-- Folder scan form -->
-        <div class="card mb-4">
-            <div class="card-header">{{ language.get("Scan Folder") }}</div>
-            <div class="card-body">
-                <div class="input-group">
-                    <input
-                        type="text"
-                        class="form-control"
-                        v-model="folderPath"
-                        :placeholder="language.get('Enter server folder path')"
-                        @keyup.enter="onScan"
-                    />
-                    <button
-                        class="btn btn-primary"
-                        :disabled="scanning || !folderPath.trim()"
-                        @click="onScan"
-                    >
-                        <span v-if="scanning" class="spinner-border spinner-border-sm me-1" role="status"></span>
-                        {{ scanning ? language.get("Scanning...") : language.get("Scan") }}
-                    </button>
-                </div>
-            </div>
+        <!-- Scan library folders -->
+        <div class="mb-4">
+            <button class="btn btn-primary" :disabled="scanning" @click="onScan">
+                <span v-if="scanning" class="spinner-border spinner-border-sm me-1" role="status"></span>
+                {{ scanning ? language.get("Scanning...") : language.get("Scan Library") }}
+            </button>
         </div>
 
         <!-- Scan result -->

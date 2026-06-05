@@ -23,6 +23,25 @@ export const scanFolder = async (folderPath: string): Promise<ScanResult | undef
 }
 
 /**
+ * Triggers a scan of all configured library folders for photo files.
+ *
+ * @returns a {@link ScanResult} aggregating counts across all library folders
+ */
+export const scanLibraryFolders = async (): Promise<ScanResult | undefined> => {
+    try {
+        const response = await axios.post(config.defaultServer() + '/api/photos/scan-library', {}, {
+            headers: { 'Content-Type': 'application/json' }
+        })
+
+        if (response.status === 200) {
+            return response.data
+        }
+    } catch (error: unknown) {
+        throw error
+    }
+}
+
+/**
  * Retrieves a paginated list of photos from the database.
  *
  * @param page page index (0-based)

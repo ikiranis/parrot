@@ -7,6 +7,8 @@ import Settings from "@/views/setting/Settings.vue"
 import Setting from "@/views/setting/Setting.vue"
 import Photos from "@/views/Photos.vue"
 import Folders from "@/views/Folders.vue"
+import LibraryFolders from "@/views/LibraryFolders.vue"
+import LibraryFolder from "@/views/libraryFolder/LibraryFolder.vue"
 
 const routes : RouteRecordRaw[] = [
     {
@@ -34,6 +36,23 @@ const routes : RouteRecordRaw[] = [
         path: '/folders',
         name: 'Folders',
         component: Folders
+    },
+    {
+        path: '/library-folders',
+        name: 'LibraryFolders',
+        component: LibraryFolders
+    },
+    {
+        path: '/library-folder/new',
+        name: 'LibraryFolderNew',
+        component: LibraryFolder,
+        props: { id: 'new' }
+    },
+    {
+        path: '/library-folder/:id',
+        name: 'LibraryFolder',
+        component: LibraryFolder,
+        props: true
     },
 ]
 

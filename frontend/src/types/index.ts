@@ -84,6 +84,12 @@ export type Folder = {
 	lastUpdate: string | null
 }
 
+/** A configured library folder used as a scan source. */
+export type LibraryFolder = {
+	id: number
+	path: string
+}
+
 /** An application configuration setting as returned by the API. */
 export type Setting = {
 	id: number

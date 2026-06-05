@@ -251,4 +251,59 @@
         <language code="el">Είστε σίγουροι ότι θέλετε να διαγράψετε όλους τους φακέλους από τη βιβλιοθήκη;</language>
     </entry>
 
+    <entry id="Library Folders">
+        <language code="en">Library Folders</language>
+        <language code="el">Φάκελοι Βιβλιοθήκης</language>
+    </entry>
+
+    <entry id="Add Folder">
+        <language code="en">Add Folder</language>
+        <language code="el">Προσθήκη Φακέλου</language>
+    </entry>
+
+    <entry id="Edit">
+        <language code="en">Edit</language>
+        <language code="el">Επεξεργασία</language>
+    </entry>
+
+    <entry id="Delete">
+        <language code="en">Delete</language>
+        <language code="el">Διαγραφή</language>
+    </entry>
+
+    <entry id="Are you sure you want to delete this library folder?">
+        <language code="en">Are you sure you want to delete this library folder?</language>
+        <language code="el">Είστε σίγουροι ότι θέλετε να διαγράψετε αυτόν τον φάκελο βιβλιοθήκης;</language>
+    </entry>
+
+    <entry id="No library folders configured. Add a folder to start scanning for media.">
+        <language code="en">No library folders configured. Add a folder to start scanning for media.</language>
+        <language code="el">Δεν έχουν ρυθμιστεί φάκελοι βιβλιοθήκης. Προσθέστε ένα φάκελο για σάρωση.</language>
+    </entry>
+
+    <entry id="Add Library Folder">
+        <language code="en">Add Library Folder</language>
+        <language code="el">Προσθήκη Φακέλου Βιβλιοθήκης</language>
+    </entry>
+
+    <entry id="Edit Library Folder">
+        <language code="en">Edit Library Folder</language>
+        <language code="el">Επεξεργασία Φακέλου Βιβλιοθήκης</language>
+    </entry>
+
+    <entry id="Enter absolute folder path">
+        <language code="en">Enter absolute folder path</language>
+        <language code="el">Εισάγετε απόλυτη διαδρομή φακέλου</language>
+    </entry>
+
+    <entry id="Library folder saved successfully">
+        <language code="en">Library folder saved successfully</language>
+        <language code="el">Ο φάκελος βιβλιοθήκης αποθηκεύτηκε επιτυχώς</language>
+    </entry>
+
+    <entry id="Scan Library">
+        <language code="en">Scan Library</language>
+        <language code="el">Σάρωση Βιβλιοθήκης</language>
+    </entry>
+
 </root>
