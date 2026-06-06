@@ -134,6 +134,8 @@ const handleKeyup = async (event: KeyboardEvent) => {
 		if (currentPhoto.value?.id === photoId) {
 			currentDetail.value = updated
 		}
+
+		navigateForward()
 	} catch {
 		// best-effort — optimistic update stays
 	}
