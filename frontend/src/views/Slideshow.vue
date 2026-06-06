@@ -3,6 +3,7 @@ import { ref, Ref, watch, onMounted, onUnmounted } from "vue"
 import { language } from "@/functions/languageStore.ts"
 import { errorStore } from "@/components/error/errorStore.ts"
 import { getRandomPhotos, getPhotoImageUrl, setPhotoRating, incrementPhotoView } from "@/api/photo.ts"
+import { getSettingByName } from "@/api/setting.ts"
 import type { MediaFile, PhotoDetail } from "@/types"
 import Error from "@/components/error/Error.vue"
 
@@ -17,6 +18,9 @@ const slideshowEl: Ref<HTMLElement | null> = ref(null)
 const isFullscreen = ref(false)
 const history: Ref<MediaFile[]> = ref([])
 const historyIndex = ref(-1)
+const isAutoPlay = ref(false)
+const slideshowTime = ref(3000)
+let slideshowTimer: ReturnType<typeof setInterval> | null = null
 
 watch(currentPhoto, async (photo) => {
 	showDetails.value = false
@@ -35,10 +39,41 @@ watch(currentPhoto, async (photo) => {
 	}
 })
 
+const stopAutoPlay = () => {
+	isAutoPlay.value = false
+	if (slideshowTimer !== null) {
+		clearInterval(slideshowTimer)
+		slideshowTimer = null
+	}
+}
+
+const startAutoPlay = () => {
+	if (slideshowTimer !== null) clearInterval(slideshowTimer)
+	isAutoPlay.value = true
+	slideshowTimer = setInterval(() => navigateForward(), slideshowTime.value)
+}
+
+const toggleAutoPlay = () => {
+	if (isAutoPlay.value) {
+		stopAutoPlay()
+	} else {
+		startAutoPlay()
+	}
+}
+
 onMounted(async () => {
 	window.addEventListener('keydown', handleKeydown)
 	window.addEventListener('keyup', handleKeyup)
 	document.addEventListener('fullscreenchange', handleFullscreenChange)
+	try {
+		const setting = await getSettingByName('slideshowTime')
+		if (setting) {
+			const parsed = parseInt(setting.settingValue)
+			if (!isNaN(parsed) && parsed > 0) slideshowTime.value = parsed
+		}
+	} catch {
+		// best-effort — use default 3000 ms
+	}
 	await navigateForward()
 })
 
@@ -46,6 +81,7 @@ onUnmounted(() => {
 	window.removeEventListener('keydown', handleKeydown)
 	window.removeEventListener('keyup', handleKeyup)
 	document.removeEventListener('fullscreenchange', handleFullscreenChange)
+	stopAutoPlay()
 })
 
 const handleFullscreenChange = () => {
@@ -120,6 +156,9 @@ const handleKeydown = (event: KeyboardEvent) => {
 	else if (event.key === 'ArrowDown') {
 		event.preventDefault()
 		showDetails.value = !showDetails.value
+	} else if (event.key === ' ') {
+		event.preventDefault()
+		toggleAutoPlay()
 	}
 }
 
@@ -178,6 +217,19 @@ const toggleFullscreen = async () => {
 					</svg>
 					{{ currentDetail?.viewCount ?? 0 }}
 				</div>
+				<button
+					class="slideshow__autoplay-btn"
+					:class="{ 'slideshow__autoplay-btn--active': isAutoPlay }"
+					@click="toggleAutoPlay"
+					:title="isAutoPlay ? language.get('Pause') : language.get('Play')"
+				>
+					<svg v-if="!isAutoPlay" xmlns="http://www.w3.org/2000/svg" width="20" fill="currentColor" viewBox="0 0 16 16">
+						<path d="m11.596 8.697-6.363 3.692c-.54.313-1.233-.066-1.233-.697V4.308c0-.63.692-1.01 1.233-.696l6.363 3.692a.802.802 0 0 1 0 1.393z"/>
+					</svg>
+					<svg v-else xmlns="http://www.w3.org/2000/svg" width="20" fill="currentColor" viewBox="0 0 16 16">
+						<path d="M5.5 3.5A1.5 1.5 0 0 1 7 5v6a1.5 1.5 0 0 1-3 0V5a1.5 1.5 0 0 1 1.5-1.5zm5 0A1.5 1.5 0 0 1 12 5v6a1.5 1.5 0 0 1-3 0V5a1.5 1.5 0 0 1 1.5-1.5z"/>
+					</svg>
+				</button>
 				<button
 					class="slideshow__fullscreen-btn"
 					@click="toggleFullscreen"
@@ -315,6 +367,30 @@ const toggleFullscreen = async () => {
 		padding: 0.4rem 0.65rem;
 		border-radius: 6px;
 		border: 1px solid rgba(255, 255, 255, 0.2);
+	}
+
+	&__autoplay-btn {
+		background: rgba(255, 255, 255, 0.1);
+		border: 1px solid rgba(255, 255, 255, 0.2);
+		color: white;
+		padding: 0.4rem 0.6rem;
+		cursor: pointer;
+		border-radius: 6px;
+		opacity: 0;
+		transition: opacity 0.2s, background 0.2s;
+
+		&:hover {
+			background: rgba(255, 255, 255, 0.25);
+		}
+
+		&--active {
+			opacity: 1;
+			background: rgba(255, 255, 255, 0.2);
+		}
+	}
+
+	&:hover &__autoplay-btn {
+		opacity: 1;
 	}
 
 	&__fullscreen-btn {

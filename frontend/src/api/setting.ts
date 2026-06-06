@@ -38,6 +38,24 @@ export const getSetting = async (id: string): Promise<Setting | undefined> => {
 }
 
 /**
+ * Retrieves a single setting by its name.
+ *
+ * @param name the setting name
+ * @returns the matching {@link Setting}
+ */
+export const getSettingByName = async (name: string): Promise<Setting | undefined> => {
+    try {
+        const response = await axios.get(config.defaultServer() + `/api/settings/name/${name}`)
+
+        if (response.status === 200) {
+            return response.data
+        }
+    } catch (error: unknown) {
+        throw error
+    }
+}
+
+/**
  * Updates an existing setting in the database.
  *
  * @param data object containing the setting id, name, and new value

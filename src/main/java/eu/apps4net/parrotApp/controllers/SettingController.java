@@ -56,6 +56,19 @@ public class SettingController {
 	}
 
 	/**
+	 * Returns the setting with the given name.
+	 *
+	 * @param name the setting name
+	 * @return the matching {@link Setting}
+	 * @throws NotFoundException if no setting exists with the given name
+	 */
+	@GetMapping(path = "name/{name}")
+	public Setting getSettingByName(@PathVariable String name) {
+		return settingService.getSettingByName(name)
+				.orElseThrow(() -> new NotFoundException("Setting not found: " + name));
+	}
+
+	/**
 	 * Updates the value of an existing setting.
 	 *
 	 * @param request JSON body containing {@code id}, {@code settingName}, and {@code settingValue}

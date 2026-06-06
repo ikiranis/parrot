@@ -29,7 +29,8 @@ public class SettingService {
 
 	/**
 	 * Seeds default settings if they are absent from the database.
-	 * Ensures {@code uploadDir}, {@code defaultActionsLanguage}, and {@code maxThreads} always exist.
+	 * Ensures {@code uploadDir}, {@code defaultActionsLanguage}, {@code maxThreads},
+	 * and {@code slideshowTime} always exist.
 	 */
 	public void setDefaultSettings() {
 		List<Setting> settings = settingRepository.findAll();
@@ -44,6 +45,10 @@ public class SettingService {
 
 		if (settings.isEmpty() || settingRepository.getBySettingName("maxThreads") == null) {
 			settingRepository.save(new Setting("maxThreads", "4"));
+		}
+
+		if (settings.isEmpty() || settingRepository.getBySettingName("slideshowTime") == null) {
+			settingRepository.save(new Setting("slideshowTime", "3000"));
 		}
 	}
 
@@ -82,6 +87,20 @@ public class SettingService {
 	 */
 	public Optional<Setting> getSetting(Long id) {
 		return settingRepository.findById(id);
+	}
+
+	/**
+	 * Finds a setting by its unique name.
+	 *
+	 * @param name the setting name
+	 * @return an {@link Optional} containing the {@link Setting}, or empty if not found
+	 */
+	public Optional<Setting> getSettingByName(String name) {
+		Setting setting = settingRepository.getBySettingName(name);
+		if (setting == null) {
+			return Optional.empty();
+		}
+		return Optional.of(setting);
 	}
 
 	/**
