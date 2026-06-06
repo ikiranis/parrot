@@ -1,29 +1,50 @@
 <script setup lang="ts">
-import { ref, Ref, onMounted, onUnmounted } from "vue"
+import { ref, Ref, watch, onMounted, onUnmounted } from "vue"
 import { language } from "@/functions/languageStore.ts"
 import { errorStore } from "@/components/error/errorStore.ts"
-import { getRandomPhotos, getPhotoImageUrl } from "@/api/photo.ts"
-import type { MediaFile } from "@/types"
+import { getRandomPhotos, getPhotoImageUrl, setPhotoRating, incrementPhotoView } from "@/api/photo.ts"
+import type { MediaFile, PhotoDetail } from "@/types"
 import Error from "@/components/error/Error.vue"
 
 const PREFETCH_MAX = 10
 
 const navigating = ref(false)
 const currentPhoto: Ref<MediaFile | null> = ref(null)
+const currentDetail: Ref<PhotoDetail | null> = ref(null)
+const showDetails = ref(false)
 const prefetchQueue: Ref<MediaFile[]> = ref([])
 const slideshowEl: Ref<HTMLElement | null> = ref(null)
 const isFullscreen = ref(false)
 const history: Ref<MediaFile[]> = ref([])
 const historyIndex = ref(-1)
 
+watch(currentPhoto, async (photo) => {
+	showDetails.value = false
+	currentDetail.value = null
+	if (!photo) return
+	try {
+		const detail = await incrementPhotoView(photo.id)
+		const existing = currentDetail.value
+		if (existing !== null) {
+			currentDetail.value = { ...(existing as PhotoDetail), viewCount: detail.viewCount }
+		} else {
+			currentDetail.value = detail
+		}
+	} catch {
+		// best-effort
+	}
+})
+
 onMounted(async () => {
 	window.addEventListener('keydown', handleKeydown)
+	window.addEventListener('keyup', handleKeyup)
 	document.addEventListener('fullscreenchange', handleFullscreenChange)
 	await navigateForward()
 })
 
 onUnmounted(() => {
 	window.removeEventListener('keydown', handleKeydown)
+	window.removeEventListener('keyup', handleKeyup)
 	document.removeEventListener('fullscreenchange', handleFullscreenChange)
 })
 
@@ -31,7 +52,6 @@ const handleFullscreenChange = () => {
 	isFullscreen.value = !!document.fullscreenElement
 }
 
-/** Fills the prefetch queue up to PREFETCH_MAX with a single batch request, adding photos one by one. */
 const preloadNext = async () => {
 	const slots = PREFETCH_MAX - prefetchQueue.value.length
 	if (slots <= 0) return
@@ -97,6 +117,26 @@ const navigateForward = async () => {
 const handleKeydown = (event: KeyboardEvent) => {
 	if (event.key === 'ArrowRight') navigateForward()
 	else if (event.key === 'ArrowLeft') navigateBack()
+	else if (event.key === 'ArrowDown') {
+		event.preventDefault()
+		showDetails.value = !showDetails.value
+	}
+}
+
+const handleKeyup = async (event: KeyboardEvent) => {
+	if (!currentPhoto.value || !['1', '2', '3', '4', '5'].includes(event.key)) return
+	const rating = parseInt(event.key)
+	const photoId = currentPhoto.value.id
+	const prev = currentDetail.value
+	if (prev) currentDetail.value = { ...prev, rating }
+	try {
+		const updated = await setPhotoRating(photoId, rating)
+		if (currentPhoto.value?.id === photoId) {
+			currentDetail.value = updated
+		}
+	} catch {
+		// best-effort — optimistic update stays
+	}
 }
 
 const toggleFullscreen = async () => {
@@ -118,7 +158,52 @@ const toggleFullscreen = async () => {
 				:alt="currentPhoto.filename"
 				class="slideshow__image"
 			/>
-			<div class="slideshow__filename">{{ currentPhoto.filename }}</div>
+
+			<div class="slideshow__rating">
+				<span
+					v-for="n in 5"
+					:key="n"
+					class="slideshow__star"
+					:class="{ 'slideshow__star--filled': currentDetail?.rating != null && n <= currentDetail.rating }"
+				>★</span>
+			</div>
+
+			<div class="slideshow__hud-right">
+				<div class="slideshow__views">
+					<svg xmlns="http://www.w3.org/2000/svg" width="14" fill="currentColor" viewBox="0 0 16 16">
+						<path d="M16 8s-3-5.5-8-5.5S0 8 0 8s3 5.5 8 5.5S16 8 16 8zM1.173 8a13.133 13.133 0 0 1 1.66-2.043C4.12 4.668 5.88 3.5 8 3.5c2.12 0 3.879 1.168 5.168 2.457A13.133 13.133 0 0 1 14.828 8c-.058.087-.122.183-.195.288-.335.48-.83 1.12-1.465 1.755C11.879 11.332 10.119 12.5 8 12.5c-2.12 0-3.879-1.168-5.168-2.457A13.134 13.134 0 0 1 1.172 8z"/>
+						<path d="M8 5.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5zM4.5 8a3.5 3.5 0 1 1 7 0 3.5 3.5 0 0 1-7 0z"/>
+					</svg>
+					{{ currentDetail?.viewCount ?? 0 }}
+				</div>
+				<button
+					class="slideshow__fullscreen-btn"
+					@click="toggleFullscreen"
+					:title="isFullscreen ? language.get('Exit Fullscreen') : language.get('Fullscreen')"
+				>
+					<svg v-if="!isFullscreen" xmlns="http://www.w3.org/2000/svg" width="20" fill="currentColor" class="bi bi-fullscreen" viewBox="0 0 16 16">
+						<path d="M1.5 1h4a.5.5 0 0 1 0 1h-4a.5.5 0 0 0-.5.5v4a.5.5 0 0 1-1 0v-4A1.5 1.5 0 0 1 1.5 1zm9 0h4A1.5 1.5 0 0 1 16 2.5v4a.5.5 0 0 1-1 0v-4a.5.5 0 0 0-.5-.5h-4a.5.5 0 0 1 0-1zm-10 10.5v4A1.5 1.5 0 0 0 1.5 15h4a.5.5 0 0 0 0-1h-4a.5.5 0 0 1-.5-.5v-4a.5.5 0 0 0-1 0zm9 0a.5.5 0 0 0-1 0v4a.5.5 0 0 0 .5.5h4a.5.5 0 0 0 0-1h-4V11z"/>
+					</svg>
+					<svg v-else xmlns="http://www.w3.org/2000/svg" width="20" fill="currentColor" class="bi bi-fullscreen-exit" viewBox="0 0 16 16">
+						<path d="M5.5 0a.5.5 0 0 1 .5.5v4A1.5 1.5 0 0 1 4.5 6h-4a.5.5 0 0 1 0-1h4a.5.5 0 0 0 .5-.5v-4a.5.5 0 0 1 .5-.5zm5 0a.5.5 0 0 1 .5.5v4a.5.5 0 0 0 .5.5h4a.5.5 0 0 1 0 1h-4A1.5 1.5 0 0 1 10 4.5v-4a.5.5 0 0 1 .5-.5zM0 10.5a.5.5 0 0 1 .5-.5h4A1.5 1.5 0 0 1 6 11.5v4a.5.5 0 0 1-1 0v-4a.5.5 0 0 0-.5-.5h-4a.5.5 0 0 1-.5-.5zm10 1a1.5 1.5 0 0 1 1.5-1.5h4a.5.5 0 0 1 0 1h-4a.5.5 0 0 0-.5.5v4a.5.5 0 0 1-1 0v-4z"/>
+					</svg>
+				</button>
+			</div>
+
+			<div class="slideshow__info" :class="{ 'slideshow__info--visible': showDetails }">
+				<div class="slideshow__info-row">
+					<span class="slideshow__info-label">{{ language.get('File') }}:</span>
+					<span class="slideshow__info-value">{{ currentDetail?.filename ?? currentPhoto.filename }}</span>
+				</div>
+				<div class="slideshow__info-row" v-if="currentDetail?.album">
+					<span class="slideshow__info-label">{{ language.get('Album') }}:</span>
+					<span class="slideshow__info-value">{{ currentDetail.album }}</span>
+				</div>
+				<div class="slideshow__info-row">
+					<span class="slideshow__info-label">{{ language.get('Path') }}:</span>
+					<span class="slideshow__info-value">{{ currentDetail?.path ?? currentPhoto.path }}</span>
+				</div>
+			</div>
 		</template>
 
 		<div v-else class="slideshow__empty">
@@ -144,19 +229,6 @@ const toggleFullscreen = async () => {
 		>
 			<svg xmlns="http://www.w3.org/2000/svg" width="32" fill="currentColor" class="bi bi-chevron-right" viewBox="0 0 16 16">
 				<path fill-rule="evenodd" d="M4.646 1.646a.5.5 0 0 1 .708 0l6 6a.5.5 0 0 1 0 .708l-6 6a.5.5 0 0 1-.708-.708L10.293 8 4.646 2.354a.5.5 0 0 1 0-.708z"/>
-			</svg>
-		</button>
-
-		<button
-			class="slideshow__fullscreen-btn"
-			@click="toggleFullscreen"
-			:title="isFullscreen ? language.get('Exit Fullscreen') : language.get('Fullscreen')"
-		>
-			<svg v-if="!isFullscreen" xmlns="http://www.w3.org/2000/svg" width="20" fill="currentColor" class="bi bi-fullscreen" viewBox="0 0 16 16">
-				<path d="M1.5 1h4a.5.5 0 0 1 0 1h-4a.5.5 0 0 0-.5.5v4a.5.5 0 0 1-1 0v-4A1.5 1.5 0 0 1 1.5 1zm9 0h4A1.5 1.5 0 0 1 16 2.5v4a.5.5 0 0 1-1 0v-4a.5.5 0 0 0-.5-.5h-4a.5.5 0 0 1 0-1zm-10 10.5v4A1.5 1.5 0 0 0 1.5 15h4a.5.5 0 0 0 0-1h-4a.5.5 0 0 1-.5-.5v-4a.5.5 0 0 0-1 0zm9 0a.5.5 0 0 0-1 0v4a.5.5 0 0 0 .5.5h4a.5.5 0 0 0 0-1h-4V11z"/>
-			</svg>
-			<svg v-else xmlns="http://www.w3.org/2000/svg" width="20" fill="currentColor" class="bi bi-fullscreen-exit" viewBox="0 0 16 16">
-				<path d="M5.5 0a.5.5 0 0 1 .5.5v4A1.5 1.5 0 0 1 4.5 6h-4a.5.5 0 0 1 0-1h4a.5.5 0 0 0 .5-.5v-4a.5.5 0 0 1 .5-.5zm5 0a.5.5 0 0 1 .5.5v4a.5.5 0 0 0 .5.5h4a.5.5 0 0 1 0 1h-4A1.5 1.5 0 0 1 10 4.5v-4a.5.5 0 0 1 .5-.5zM0 10.5a.5.5 0 0 1 .5-.5h4A1.5 1.5 0 0 1 6 11.5v4a.5.5 0 0 1-1 0v-4a.5.5 0 0 0-.5-.5h-4a.5.5 0 0 1-.5-.5zm10 1a1.5 1.5 0 0 1 1.5-1.5h4a.5.5 0 0 1 0 1h-4a.5.5 0 0 0-.5.5v4a.5.5 0 0 1-1 0v-4z"/>
 			</svg>
 		</button>
 
@@ -196,29 +268,112 @@ const toggleFullscreen = async () => {
 		display: block;
 	}
 
-	&__loading {
-		color: white;
-	}
-
 	&__empty {
 		color: rgba(255, 255, 255, 0.6);
 		font-size: 1.1rem;
 	}
 
-	&__filename {
+	&__rating {
+		position: absolute;
+		top: 1rem;
+		left: 1rem;
+		display: flex;
+		gap: 0.1rem;
+		background: rgba(0, 0, 0, 0.55);
+		padding: 0.3rem 0.6rem;
+		border-radius: 6px;
+	}
+
+	&__star {
+		font-size: 1.1rem;
+		color: rgba(255, 255, 255, 0.25);
+		line-height: 1;
+
+		&--filled {
+			color: #f5c518;
+		}
+	}
+
+	&__hud-right {
+		position: absolute;
+		top: 1rem;
+		right: 1rem;
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+	}
+
+	&__views {
+		display: flex;
+		align-items: center;
+		gap: 0.35rem;
+		background: rgba(0, 0, 0, 0.55);
+		color: rgba(255, 255, 255, 0.85);
+		font-size: 0.8rem;
+		padding: 0.4rem 0.65rem;
+		border-radius: 6px;
+		border: 1px solid rgba(255, 255, 255, 0.2);
+	}
+
+	&__fullscreen-btn {
+		background: rgba(255, 255, 255, 0.1);
+		border: 1px solid rgba(255, 255, 255, 0.2);
+		color: white;
+		padding: 0.4rem 0.6rem;
+		cursor: pointer;
+		border-radius: 6px;
+		opacity: 0;
+		transition: opacity 0.2s, background 0.2s;
+
+		&:hover {
+			background: rgba(255, 255, 255, 0.25);
+		}
+	}
+
+	&:hover &__fullscreen-btn {
+		opacity: 1;
+	}
+
+	&__info {
 		position: absolute;
 		bottom: 1.25rem;
 		left: 50%;
 		transform: translateX(-50%);
-		color: rgba(255, 255, 255, 0.75);
-		font-size: 0.85rem;
-		background: rgba(0, 0, 0, 0.55);
-		padding: 0.25rem 0.75rem;
-		border-radius: 4px;
+		background: rgba(0, 0, 0, 0.7);
+		padding: 0.6rem 1rem;
+		border-radius: 6px;
 		max-width: 80%;
-		white-space: nowrap;
+		opacity: 0;
+		pointer-events: none;
+		transition: opacity 0.2s;
+
+		&--visible {
+			opacity: 1;
+			pointer-events: auto;
+		}
+	}
+
+	&__info-row {
+		display: flex;
+		gap: 0.5rem;
+		font-size: 0.82rem;
+		color: rgba(255, 255, 255, 0.85);
+		overflow: hidden;
+
+		& + & {
+			margin-top: 0.25rem;
+		}
+	}
+
+	&__info-label {
+		color: rgba(255, 255, 255, 0.5);
+		flex-shrink: 0;
+	}
+
+	&__info-value {
 		overflow: hidden;
 		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 
 	&__arrow {
@@ -253,28 +408,6 @@ const toggleFullscreen = async () => {
 	}
 
 	&:hover .slideshow__arrow:not(:disabled) {
-		opacity: 1;
-	}
-
-	&__fullscreen-btn {
-		position: absolute;
-		top: 1rem;
-		right: 1rem;
-		background: rgba(255, 255, 255, 0.1);
-		border: 1px solid rgba(255, 255, 255, 0.2);
-		color: white;
-		padding: 0.4rem 0.6rem;
-		cursor: pointer;
-		border-radius: 6px;
-		opacity: 0;
-		transition: opacity 0.2s, background 0.2s;
-
-		&:hover {
-			background: rgba(255, 255, 255, 0.25);
-		}
-	}
-
-	&:hover .slideshow__fullscreen-btn {
 		opacity: 1;
 	}
 }

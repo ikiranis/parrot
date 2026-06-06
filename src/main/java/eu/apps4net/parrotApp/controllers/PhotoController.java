@@ -15,6 +15,7 @@ import eu.apps4net.parrotApp.exceptions.ProcessingErrorException;
 import eu.apps4net.parrotApp.models.MediaFile;
 import eu.apps4net.parrotApp.models.MediaKind;
 import eu.apps4net.parrotApp.models.PhotoDetailDTO;
+import eu.apps4net.parrotApp.models.PhotoTag;
 import eu.apps4net.parrotApp.models.ScanResult;
 import eu.apps4net.parrotApp.repositories.MediaFileRepository;
 import eu.apps4net.parrotApp.repositories.PhotoTagRepository;
@@ -26,6 +27,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * REST controller for photo media file operations.
@@ -166,6 +168,61 @@ public class PhotoController {
 		return ResponseEntity.ok()
 				.contentType(MediaType.parseMediaType(contentType))
 				.body(resource);
+	}
+
+	/**
+	 * Sets the rating for the specified photo.
+	 * Creates a {@link eu.apps4net.parrotApp.models.PhotoTag} record if one does not yet exist.
+	 *
+	 * @param id      the primary key of the media file
+	 * @param request JSON body containing a {@code "rating"} key with an integer value between 1 and 5
+	 * @return the updated {@link PhotoDetailDTO}
+	 * @throws NotFoundException        if no media file with the given id exists
+	 * @throws ProcessingErrorException if {@code rating} is missing or out of the 1–5 range
+	 */
+	@PatchMapping("{id}/rating")
+	@Transactional
+	public PhotoDetailDTO setRating(@PathVariable Long id, @RequestBody Map<String, Integer> request) {
+		Integer rating = request.get("rating");
+		if (rating == null || rating < 1 || rating > 5) {
+			throw new ProcessingErrorException("rating must be between 1 and 5");
+		}
+		MediaFile mediaFile = mediaFileRepository.findById(id)
+				.orElseThrow(() -> new NotFoundException("Photo not found: " + id));
+		PhotoTag tag = photoTagRepository.findByMediaFile(mediaFile)
+				.orElseGet(() -> {
+					PhotoTag t = new PhotoTag();
+					t.setMediaFile(mediaFile);
+					return t;
+				});
+		tag.setRating(rating);
+		photoTagRepository.save(tag);
+		return PhotoDetailDTO.from(mediaFile, Optional.of(tag));
+	}
+
+	/**
+	 * Increments the view counter for the specified photo by one.
+	 * Creates a {@link eu.apps4net.parrotApp.models.PhotoTag} record if one does not yet exist.
+	 *
+	 * @param id the primary key of the media file
+	 * @return the updated {@link PhotoDetailDTO}
+	 * @throws NotFoundException if no media file with the given id exists
+	 */
+	@PostMapping("{id}/view")
+	@Transactional
+	public PhotoDetailDTO incrementView(@PathVariable Long id) {
+		MediaFile mediaFile = mediaFileRepository.findById(id)
+				.orElseThrow(() -> new NotFoundException("Photo not found: " + id));
+		PhotoTag tag = photoTagRepository.findByMediaFile(mediaFile)
+				.orElseGet(() -> {
+					PhotoTag t = new PhotoTag();
+					t.setMediaFile(mediaFile);
+					return t;
+				});
+		long current = tag.getViewCount() != null ? tag.getViewCount() : 0L;
+		tag.setViewCount(current + 1);
+		photoTagRepository.save(tag);
+		return PhotoDetailDTO.from(mediaFile, Optional.of(tag));
 	}
 
 	/**

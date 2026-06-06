@@ -113,3 +113,26 @@ export const getRandomPhotos = async (count: number = 10): Promise<import("@/typ
  */
 export const getPhotoImageUrl = (id: number): string =>
     config.defaultServer() + `/api/photos/${id}/image`
+
+/**
+ * Sets the rating for the specified photo (1–5).
+ *
+ * @param id     the primary key of the media file
+ * @param rating integer between 1 and 5
+ * @returns the updated {@link PhotoDetail}
+ */
+export const setPhotoRating = async (id: number, rating: number): Promise<import("@/types").PhotoDetail> => {
+    const response = await axios.patch(config.defaultServer() + `/api/photos/${id}/rating`, { rating })
+    return response.data
+}
+
+/**
+ * Increments the view counter for the specified photo by one.
+ *
+ * @param id the primary key of the media file
+ * @returns the updated {@link PhotoDetail}
+ */
+export const incrementPhotoView = async (id: number): Promise<import("@/types").PhotoDetail> => {
+    const response = await axios.post(config.defaultServer() + `/api/photos/${id}/view`)
+    return response.data
+}
