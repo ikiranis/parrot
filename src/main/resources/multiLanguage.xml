@@ -231,6 +231,21 @@
         <language code="el">φάκελοι</language>
     </entry>
 
+    <entry id="Level">
+        <language code="en">Level</language>
+        <language code="el">Επίπεδο</language>
+    </entry>
+
+    <entry id="Yes">
+        <language code="en">Yes</language>
+        <language code="el">Ναι</language>
+    </entry>
+
+    <entry id="No">
+        <language code="en">No</language>
+        <language code="el">Όχι</language>
+    </entry>
+
     <entry id="No folders found. Scan a folder to import media.">
         <language code="en">No folders found. Scan a folder to import media.</language>
         <language code="el">Δεν βρέθηκαν φάκελοι. Σαρώστε ένα φάκελο για εισαγωγή.</language>
