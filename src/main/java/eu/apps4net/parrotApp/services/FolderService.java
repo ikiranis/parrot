@@ -38,12 +38,12 @@ public class FolderService {
 	}
 
 	/**
-	 * Returns all persisted folders.
+	 * Returns all persisted folders with level greater than 0, sorted by level ascending.
 	 *
-	 * @return list of all {@link Folder} records
+	 * @return list of {@link Folder} records excluding root-level folders
 	 */
 	public List<Folder> getAllFolders() {
-		return folderRepository.findAll();
+		return folderRepository.findByLevelGreaterThanOrderByLevelAsc(0);
 	}
 
 	/**
