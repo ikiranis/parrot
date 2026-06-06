@@ -78,6 +78,8 @@ const onClearFolders = async () => {
 					<tr>
 						<th>#</th>
 						<th>{{ language.get("Path") }}</th>
+						<th>{{ language.get("Level") }}</th>
+						<th>{{ language.get("Finished") }}</th>
 						<th>{{ language.get("Hash") }}</th>
 					</tr>
 				</thead>
@@ -85,6 +87,11 @@ const onClearFolders = async () => {
 					<tr v-for="folder in folders" :key="folder.id">
 						<td class="align-middle">{{ folder.id }}</td>
 						<td class="align-middle">{{ folder.path }}</td>
+						<td class="align-middle">{{ folder.level }}</td>
+						<td class="align-middle">
+							<span v-if="folder.finished" class="badge text-bg-success">{{ language.get("Yes") }}</span>
+							<span v-else class="badge text-bg-warning">{{ language.get("No") }}</span>
+						</td>
 						<td class="align-middle text-muted small font-monospace">{{ folder.hash ?? "—" }}</td>
 					</tr>
 				</tbody>

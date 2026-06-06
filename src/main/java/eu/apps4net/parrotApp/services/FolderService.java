@@ -103,12 +103,17 @@ public class FolderService {
 	 * Otherwise the hash and {@code lastUpdate} fields are updated and {@code true}
 	 * is returned.
 	 *
+	 * The folder level is computed as the number of path components between {@code root}
+	 * and {@code dirPath}: the root itself is level 0, its direct children are level 1,
+	 * and so on.
+	 *
 	 * @param dirPath the leaf directory to inspect; must be an existing directory
+	 * @param root    the library root used to compute the nesting level
 	 * @return {@code true} if the directory is new or its content changed and its files
 	 *         should be re-scanned; {@code false} if the directory is unchanged
 	 * @throws IOException if the directory cannot be listed or a file size cannot be read
 	 */
-	public boolean checkAndSaveFolder(Path dirPath) throws IOException {
+	public boolean checkAndSaveFolder(Path dirPath, Path root) throws IOException {
 		List<Path> files = new ArrayList<>();
 		try (Stream<Path> listing = Files.list(dirPath)) {
 			listing.filter(Files::isRegularFile).forEach(files::add);
@@ -121,21 +126,38 @@ public class FolderService {
 
 		String newHash = sha256(files.size() + ":" + totalSize);
 		String path = dirPath.toString();
+		int level = (int) root.relativize(dirPath).getNameCount();
 
 		Optional<Folder> existing = folderRepository.findByPath(path);
 		if (existing.isPresent()) {
 			Folder folder = existing.get();
-			if (newHash.equals(folder.getHash())) {
+			if (newHash.equals(folder.getHash()) && folder.isFinished()) {
 				return false;
 			}
 			folder.setHash(newHash);
+			folder.setLevel(level);
+			folder.setFinished(false);
 			folder.setLastUpdate(LocalDateTime.now());
 			folderRepository.save(folder);
 			return true;
 		}
 
-		folderRepository.save(new Folder(path, newHash, null, LocalDateTime.now()));
+		folderRepository.save(new Folder(path, newHash, level, LocalDateTime.now()));
 		return true;
+	}
+
+	/**
+	 * Marks the folder at the given path as fully indexed by setting its
+	 * {@code finished} flag to {@code true}.
+	 * Has no effect if no folder record exists for that path.
+	 *
+	 * @param path the full absolute path of the folder to mark as finished
+	 */
+	public void markFinished(String path) {
+		folderRepository.findByPath(path).ifPresent(folder -> {
+			folder.setFinished(true);
+			folderRepository.save(folder);
+		});
 	}
 
 	/**

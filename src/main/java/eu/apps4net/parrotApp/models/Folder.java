@@ -9,7 +9,8 @@ import java.time.LocalDateTime;
 /**
  * JPA entity representing a scanned folder in the media library.
  * Tracks the folder path, a content hash derived from file count and total
- * size, an optional thumbnail image path, and the last time a change was
+ * size, the nesting level relative to the library root, a flag indicating
+ * whether all files have been fully indexed, and the last time a change was
  * detected.
  */
 @Entity(name = "Folder")
@@ -35,10 +36,20 @@ public class Folder {
 	@Column(name = "hash")
 	private String hash;
 
-	/** Full path to a representative thumbnail image from this folder, if any. */
-	@Size(max = 512)
-	@Column(name = "thumbnail")
-	private String thumbnail;
+	/**
+	 * Nesting level relative to the library root.
+	 * The root folder itself is level 0; each subdirectory adds 1.
+	 */
+	@Column(name = "level", nullable = false, columnDefinition = "INTEGER DEFAULT 0")
+	private int level;
+
+	/**
+	 * Whether all files in this folder have been fully indexed.
+	 * Remains {@code false} until every file has been processed, allowing
+	 * interrupted scans to be resumed safely.
+	 */
+	@Column(name = "finished", nullable = false, columnDefinition = "BOOLEAN DEFAULT FALSE")
+	private boolean finished = false;
 
 	/** Timestamp of the last detected change in this folder. */
 	@Column(name = "last_update")
@@ -50,16 +61,18 @@ public class Folder {
 
 	/**
 	 * Constructs a fully-initialised {@code Folder}.
+	 * {@code finished} is always {@code false} on construction and must be set
+	 * explicitly once all files in the folder have been indexed.
 	 *
 	 * @param path       the full absolute path of the folder
 	 * @param hash       the content hash, may be {@code null}
-	 * @param thumbnail  full path to a thumbnail image, may be {@code null}
+	 * @param level      the nesting level relative to the library root (0 = root)
 	 * @param lastUpdate the timestamp of the last detected change
 	 */
-	public Folder(String path, String hash, String thumbnail, LocalDateTime lastUpdate) {
+	public Folder(String path, String hash, int level, LocalDateTime lastUpdate) {
 		this.path = path;
 		this.hash = hash;
-		this.thumbnail = thumbnail;
+		this.level = level;
 		this.lastUpdate = lastUpdate;
 	}
 
@@ -118,21 +131,39 @@ public class Folder {
 	}
 
 	/**
-	 * Returns the full path to the thumbnail image.
+	 * Returns the nesting level of the folder relative to the library root.
 	 *
-	 * @return the thumbnail path, or {@code null} if none has been assigned
+	 * @return the level (0 = root)
 	 */
-	public String getThumbnail() {
-		return thumbnail;
+	public int getLevel() {
+		return level;
 	}
 
 	/**
-	 * Sets the full path to the thumbnail image.
+	 * Sets the nesting level of the folder relative to the library root.
 	 *
-	 * @param thumbnail the thumbnail path to set
+	 * @param level the level to set (0 = root)
 	 */
-	public void setThumbnail(String thumbnail) {
-		this.thumbnail = thumbnail;
+	public void setLevel(int level) {
+		this.level = level;
+	}
+
+	/**
+	 * Returns whether all files in this folder have been fully indexed.
+	 *
+	 * @return {@code true} if indexing is complete, {@code false} otherwise
+	 */
+	public boolean isFinished() {
+		return finished;
+	}
+
+	/**
+	 * Sets whether all files in this folder have been fully indexed.
+	 *
+	 * @param finished {@code true} if indexing is complete
+	 */
+	public void setFinished(boolean finished) {
+		this.finished = finished;
 	}
 
 	/**

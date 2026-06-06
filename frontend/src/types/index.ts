@@ -80,7 +80,8 @@ export type Folder = {
 	id: number
 	path: string
 	hash: string | null
-	thumbnail: string | null
+	level: number
+	finished: boolean
 	lastUpdate: string | null
 }
 

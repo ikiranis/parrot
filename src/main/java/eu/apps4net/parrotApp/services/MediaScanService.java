@@ -268,7 +268,7 @@ public class MediaScanService {
 				for (LeafDirEntry entry : chunk) {
 					boolean hasChanges;
 					try {
-						hasChanges = folderService.checkAndSaveFolder(entry.leafDir());
+						hasChanges = folderService.checkAndSaveFolder(entry.leafDir(), entry.root());
 					} catch (IOException e) {
 						state.incrementErrors();
 						state.addErrorLog("Folder check failed: " + entry.leafDir() + " — " + e.getMessage());
@@ -284,6 +284,7 @@ public class MediaScanService {
 							FileScanEntry fse = scanMediaFileToEntry(filePath, entry.root(), state);
 							if (fse != null) allEntries.add(fse);
 						});
+						folderService.markFinished(entry.leafDir().toString());
 					} catch (IOException e) {
 						state.incrementErrors();
 						state.addErrorLog("Failed to list directory: " + entry.leafDir() + " — " + e.getMessage());
@@ -441,7 +442,7 @@ public class MediaScanService {
 				for (Path leafDir : chunk) {
 					boolean hasChanges;
 					try {
-						hasChanges = folderService.checkAndSaveFolder(leafDir);
+						hasChanges = folderService.checkAndSaveFolder(leafDir, ctx.root);
 					} catch (IOException e) {
 						ctx.incrementErrors("Folder check failed: " + leafDir, e.getMessage());
 						continue;
@@ -454,6 +455,7 @@ public class MediaScanService {
 					try (Stream<Path> files = Files.list(leafDir)) {
 						files.filter(Files::isRegularFile)
 								.forEach(filePath -> scanMediaFile(filePath, ctx));
+						folderService.markFinished(leafDir.toString());
 					} catch (IOException e) {
 						ctx.incrementErrors("Failed to list directory: " + leafDir, e.getMessage());
 					}
