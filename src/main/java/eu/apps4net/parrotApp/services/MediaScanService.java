@@ -276,6 +276,7 @@ public class MediaScanService {
 					}
 					if (!hasChanges) {
 						state.incrementFoldersSkipped();
+						state.addSkipped(countMediaFilesInDir(entry.leafDir()));
 						continue;
 					}
 					state.incrementFoldersScanned();
@@ -449,6 +450,7 @@ public class MediaScanService {
 					}
 					if (!hasChanges) {
 						ctx.incrementFoldersSkipped();
+						ctx.addSkipped(countMediaFilesInDir(leafDir));
 						continue;
 					}
 					ctx.incrementFoldersScanned();
@@ -621,6 +623,24 @@ public class MediaScanService {
 	}
 
 	/**
+	 * Counts the media files in a single directory (non-recursive) by extension,
+	 * without any database access. Used when a folder is skipped to report its files as skipped.
+	 *
+	 * @param dir the directory to inspect
+	 * @return count of files whose extension maps to a known {@link MediaKind}
+	 */
+	private int countMediaFilesInDir(Path dir) {
+		try (Stream<Path> files = Files.list(dir)) {
+			return (int) files
+					.filter(Files::isRegularFile)
+					.filter(f -> resolveKind(f).isPresent())
+					.count();
+		} catch (IOException e) {
+			return 0;
+		}
+	}
+
+	/**
 	 * Counts all media files across every leaf directory in parallel by extension,
 	 * without any database access. Used after Phase 1 to set the total-files denominator.
 	 *
@@ -710,6 +730,11 @@ public class MediaScanService {
 		void incrementSkipped() {
 			skipped.incrementAndGet();
 			if (jobState != null) jobState.incrementSkipped();
+		}
+
+		void addSkipped(int n) {
+			skipped.addAndGet(n);
+			if (jobState != null) jobState.addSkipped(n);
 		}
 
 		void incrementErrors() {

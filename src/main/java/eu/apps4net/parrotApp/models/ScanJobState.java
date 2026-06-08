@@ -284,6 +284,15 @@ public class ScanJobState {
 		skipped.incrementAndGet();
 	}
 
+	/**
+	 * Adds {@code n} to the skipped-files counter atomically.
+	 *
+	 * @param n number of skipped files to add
+	 */
+	public void addSkipped(int n) {
+		skipped.addAndGet(n);
+	}
+
 	/** Increments the error counter by one. */
 	public void incrementErrors() {
 		errors.incrementAndGet();
