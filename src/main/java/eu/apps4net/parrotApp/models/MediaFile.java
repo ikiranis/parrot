@@ -19,14 +19,14 @@ public class MediaFile {
 
 	/** Absolute directory path of the file on the server. */
 	@NotBlank
-	@Size(max = 255)
-	@Column(name = "path", nullable = false)
+	@Size(max = 1024)
+	@Column(name = "path", nullable = false, length = 1024)
 	private String path;
 
 	/** Name of the file including its extension. */
 	@NotBlank
-	@Size(max = 255)
-	@Column(name = "filename", nullable = false)
+	@Size(max = 512)
+	@Column(name = "filename", nullable = false, length = 512)
 	private String filename;
 
 	/** Optional content hash used for de-duplication. */
