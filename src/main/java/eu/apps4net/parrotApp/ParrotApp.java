@@ -32,6 +32,11 @@ public class ParrotApp {
 	 * @param args command-line arguments passed to the JVM
 	 */
 	public static void main(String[] args) {
+		// Must be set before Derby initialises (first DataSource connection).
+		// Prevents table-level lock escalation when concurrent threads insert large batches,
+		// which would block FK constraint checks in other transactions.
+		System.setProperty("derby.locks.escalationThreshold", String.valueOf(Integer.MAX_VALUE));
+
 		SpringApplication.run(ParrotApp.class, args);
 
 		Language.setActionsLanguage(settingService.getDefaultActionsLanguage());

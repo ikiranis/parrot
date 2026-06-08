@@ -33,6 +33,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -48,6 +49,11 @@ import java.util.stream.Stream;
  *    for each new file.  Already-indexed files are skipped.
  * 3. Tag scan (TAGGING) – dispatches each saved {@link MediaFile} to the appropriate
  *    {@link MediaTagScanner} implementation based on its {@link MediaKind}.
+ *
+ * In background scans, phases 2 and 3 run concurrently: the tag scanner starts in a
+ * separate thread alongside the file scanner and polls the database for newly added files.
+ * If no untagged records are found while the file scan is still in progress, the tag
+ * scanner sleeps for 3 minutes before retrying.
  *
  * When called with a {@link ScanJobState}, phase transitions and every counter increment
  * are mirrored into the job state so that background scans expose live progress and error
@@ -186,12 +192,16 @@ public class MediaScanService {
 	 * Scans all configured {@link LibraryFolder} paths in the background, writing live
 	 * progress into the provided {@link ScanJobState} as each file and folder is processed.
 	 *
-	 * The scan proceeds in three explicit phases, each mirrored onto the job state:
+	 * The scan proceeds in three phases:
 	 * 1. COLLECTING – discover all leaf directories across every library folder.
-	 * 2. SCANNING   – inspect each directory for new media files.
-	 * 3. TAGGING    – read metadata tags for every newly added file.
+	 * 2. SCANNING   – inspect each directory for new media files (concurrent with phase 3).
+	 * 3. TAGGING    – read metadata tags for newly added files (concurrent with phase 2).
 	 *
-	 * Marks the job state as completed or failed when the scan finishes.
+	 * Phases 2 and 3 run in parallel: the tag scanner polls the database for untagged records
+	 * while the file scan is running. If no untagged records are found while the file scan is
+	 * still in progress, the tag scanner sleeps for 3 minutes before retrying.
+	 *
+	 * Marks the job state as completed or failed when both phases finish.
 	 * Intended to be called from {@link ScanJobService} on a background thread.
 	 *
 	 * @param state the job state to update throughout the scan
@@ -214,17 +224,29 @@ public class MediaScanService {
 			state.setTotalFolders(allLeafDirs.size());
 			state.setTotalMediaFilesInLibrary(countAllMediaFiles(allLeafDirs));
 
-			// Phase 2: scan all leaf directories for new media files
-			state.setPhase(ScanPhase.SCANNING);
-			scanAllLeafDirs(allLeafDirs, state);
-			allLeafDirs.clear();
-			allLeafDirs = null;
-			System.gc();
+			// Phases 2 and 3 run concurrently.
+			// fileScanDone is set in a finally block so the tag thread always gets a termination signal.
+			AtomicBoolean fileScanDone = new AtomicBoolean(false);
+			ExecutorService phaseExecutor = Executors.newFixedThreadPool(2);
 
-			// Phase 3: read metadata tags for all MediaFile records without tags
-			state.setPhase(ScanPhase.TAGGING);
-			runTagScanners(state);
-			System.gc();
+			Future<?> scanFuture = phaseExecutor.submit(() -> {
+				try {
+					state.setPhase(ScanPhase.SCANNING);
+					scanAllLeafDirs(allLeafDirs, state);
+					allLeafDirs.clear();
+					System.gc();
+				} finally {
+					fileScanDone.set(true);
+				}
+			});
+
+			Future<?> tagFuture = phaseExecutor.submit(() -> {
+				runTagScannersParallel(state, fileScanDone);
+				System.gc();
+			});
+
+			phaseExecutor.shutdown();
+			awaitAll(List.of(scanFuture, tagFuture), state);
 
 			state.complete("Scan complete. Added: " + state.getAdded() +
 					", Skipped: " + state.getSkipped() +
@@ -348,6 +370,63 @@ public class MediaScanService {
 				if (batch.isEmpty()) break;
 				processTagBatch(batch, entry.getValue(), state);
 			} while (true);
+		}
+	}
+
+	/**
+	 * Phase 3 (parallel background) — polls the database for {@link MediaFile} records without
+	 * tags and processes them while Phase 2 is still running.
+	 *
+	 * On each iteration the method counts all untagged records across every registered scanner kind.
+	 * If records are found, it transitions the job state to TAGGING and drains them in batches.
+	 * If no records are found and the file scan has not yet finished, the thread sleeps for
+	 * 3 minutes before retrying. Once the file scan is complete and no untagged records remain,
+	 * the method returns.
+	 *
+	 * The cumulative total passed to {@link ScanJobState#setTotalFiles} grows across iterations
+	 * so that the progress percentage never regresses when a second pass finds additional files.
+	 *
+	 * @param state        job state for live counter updates, phase transitions, and error logging
+	 * @param fileScanDone flag set to {@code true} by Phase 2 when all directories have been processed
+	 */
+	private void runTagScannersParallel(ScanJobState state, AtomicBoolean fileScanDone) {
+		long cumulativeTotalToTag = 0;
+
+		while (true) {
+			long totalToTag = 0;
+			for (MediaKind kind : tagScanners.keySet()) {
+				totalToTag += mediaFileRepository.countByKindWithoutPhotoTag(kind);
+			}
+
+			if (totalToTag == 0) {
+				if (fileScanDone.get()) {
+					break;
+				}
+				try {
+					Thread.sleep(3 * 60 * 1000L);
+				} catch (InterruptedException e) {
+					Thread.currentThread().interrupt();
+					return;
+				}
+				continue;
+			}
+
+			cumulativeTotalToTag += totalToTag;
+			state.setTotalFiles((int) cumulativeTotalToTag);
+			if (fileScanDone.get()) {
+				state.setPhase(ScanPhase.TAGGING);
+			}
+
+			for (Map.Entry<MediaKind, MediaTagScanner> entry : tagScanners.entrySet()) {
+				List<MediaFile> batch;
+				do {
+					batch = mediaFileRepository
+							.findByKindWithoutPhotoTag(entry.getKey(), PageRequest.of(0, TAG_SCAN_BATCH_SIZE))
+							.getContent();
+					if (batch.isEmpty()) break;
+					processTagBatch(batch, entry.getValue(), state);
+				} while (true);
+			}
 		}
 	}
 
