@@ -53,4 +53,27 @@ public interface MediaFileRepository extends JpaRepository<MediaFile, Long> {
 	 * @param kind the media kind to delete
 	 */
 	void deleteAllByKind(MediaKind kind);
+
+	/**
+	 * Returns a paginated batch of media files of the given kind that have no
+	 * corresponding {@link eu.apps4net.parrotApp.models.PhotoTag} record.
+	 * Always pass {@code PageRequest.of(0, batchSize)} so that already-tagged
+	 * records fall out of the result set as the repair phase progresses.
+	 *
+	 * @param kind     the media kind to filter by
+	 * @param pageable pagination parameters (use page 0 each call)
+	 * @return a page of untagged {@link MediaFile} records
+	 */
+	@Query("SELECT mf FROM MediaFile mf WHERE mf.kind = ?1 AND NOT EXISTS (SELECT pt FROM PhotoTag pt WHERE pt.mediaFile = mf)")
+	Page<MediaFile> findByKindWithoutPhotoTag(MediaKind kind, Pageable pageable);
+
+	/**
+	 * Counts media files of the given kind that have no corresponding
+	 * {@link eu.apps4net.parrotApp.models.PhotoTag} record.
+	 *
+	 * @param kind the media kind to filter by
+	 * @return total count of untagged records for that kind
+	 */
+	@Query("SELECT COUNT(mf) FROM MediaFile mf WHERE mf.kind = ?1 AND NOT EXISTS (SELECT pt FROM PhotoTag pt WHERE pt.mediaFile = mf)")
+	long countByKindWithoutPhotoTag(MediaKind kind);
 }
