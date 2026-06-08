@@ -28,6 +28,16 @@ public interface MediaFileRepository extends JpaRepository<MediaFile, Long> {
 	Optional<MediaFile> findByPathAndFilename(String path, String filename);
 
 	/**
+	 * Returns all media files in the given directory path.
+	 * Used during batch scanning to check which filenames are already indexed
+	 * before bulk-inserting new records.
+	 *
+	 * @param path the directory path to query
+	 * @return list of {@link MediaFile} records for that directory
+	 */
+	List<MediaFile> findByPath(String path);
+
+	/**
 	 * Returns a paginated list of media files of the given kind.
 	 *
 	 * @param kind     the media kind to filter by

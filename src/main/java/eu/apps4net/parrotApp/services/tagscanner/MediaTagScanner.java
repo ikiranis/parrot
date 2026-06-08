@@ -4,6 +4,9 @@ import eu.apps4net.parrotApp.models.MediaFile;
 import eu.apps4net.parrotApp.models.MediaKind;
 
 import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.List;
+import java.util.function.Function;
 
 /**
  * Strategy interface for scanning and persisting metadata tags for a specific
@@ -36,4 +39,22 @@ public interface MediaTagScanner {
 	 *                   used to determine whether the file resides directly in the root
 	 */
 	void scanTags(MediaFile mediaFile, Path filePath, Path rootPath);
+
+	/**
+	 * Scans and persists tags for a batch of media files in a single transaction.
+	 * Implementations should override this to replace N individual saves with one
+	 * {@code saveAll()} call for better throughput.
+	 *
+	 * The default implementation falls back to calling {@link #scanTags} for each file.
+	 *
+	 * @param files        the already-persisted media file records to tag
+	 * @param rootResolver function that maps each {@link MediaFile} to the library root
+	 *                     path used by {@link #scanTags}
+	 */
+	default void scanTagsBatch(List<MediaFile> files, Function<MediaFile, Path> rootResolver) {
+		for (MediaFile mf : files) {
+			Path filePath = Paths.get(mf.getPath()).resolve(mf.getFilename());
+			scanTags(mf, filePath, rootResolver.apply(mf));
+		}
+	}
 }

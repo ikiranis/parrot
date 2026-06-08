@@ -12,6 +12,10 @@ import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.function.Function;
 
 /**
  * {@link MediaTagScanner} implementation for image files ({@link MediaKind#IMAGE}).
@@ -48,15 +52,43 @@ public class PhotoTagScanner implements MediaTagScanner {
 	 * Scans the image file at {@code filePath} and persists a {@link PhotoTag} containing
 	 * the display name, album, file size, MIME type, and pixel dimensions.
 	 *
-	 * The album is set to the name of the immediate parent directory of the file.
-	 * If the file resides directly in {@code rootPath}, the album is left {@code null}.
-	 *
 	 * @param mediaFile the already-persisted media file record
 	 * @param filePath  the path to the image file on disk
 	 * @param rootPath  the root scan folder; used to suppress the album for top-level files
 	 */
 	@Override
 	public void scanTags(MediaFile mediaFile, Path filePath, Path rootPath) {
+		photoTagRepository.save(buildPhotoTag(mediaFile, filePath, rootPath));
+	}
+
+	/**
+	 * Builds and persists {@link PhotoTag} records for a batch of image files in a single
+	 * {@code saveAll()} call, reducing per-file transaction overhead to one per batch.
+	 *
+	 * @param files        the already-persisted media file records to tag
+	 * @param rootResolver function that maps each {@link MediaFile} to the library root path
+	 */
+	@Override
+	public void scanTagsBatch(List<MediaFile> files, Function<MediaFile, Path> rootResolver) {
+		List<PhotoTag> tags = new ArrayList<>(files.size());
+		for (MediaFile mf : files) {
+			Path filePath = Paths.get(mf.getPath()).resolve(mf.getFilename());
+			tags.add(buildPhotoTag(mf, filePath, rootResolver.apply(mf)));
+		}
+		if (!tags.isEmpty()) {
+			photoTagRepository.saveAll(tags);
+		}
+	}
+
+	/**
+	 * Builds a {@link PhotoTag} for the given image file without persisting it.
+	 *
+	 * @param mediaFile the media file record
+	 * @param filePath  the path to the image file on disk
+	 * @param rootPath  the root scan folder
+	 * @return a fully populated, unsaved {@link PhotoTag}
+	 */
+	private PhotoTag buildPhotoTag(MediaFile mediaFile, Path filePath, Path rootPath) {
 		File file = filePath.toFile();
 		String filename = filePath.getFileName().toString();
 
@@ -66,10 +98,8 @@ public class PhotoTagScanner implements MediaTagScanner {
 		photoTag.setAlbum(resolveAlbum(filePath, rootPath));
 		photoTag.setFilesize(file.length());
 		photoTag.setMimeType(resolveMimeType(filename));
-
 		readImageDimensions(file, photoTag);
-
-		photoTagRepository.save(photoTag);
+		return photoTag;
 	}
 
 	/**

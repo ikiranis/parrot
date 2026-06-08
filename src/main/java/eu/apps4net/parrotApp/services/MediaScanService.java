@@ -22,6 +22,7 @@ import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.EnumMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -31,6 +32,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 /**
@@ -285,8 +287,8 @@ public class MediaScanService {
 					}
 					state.incrementFoldersScanned();
 					try (Stream<Path> files = Files.list(entry.leafDir())) {
-						files.filter(Files::isRegularFile)
-								.forEach(filePath -> saveMediaFile(filePath, state));
+						List<Path> fileList = files.filter(Files::isRegularFile).collect(Collectors.toList());
+						saveDirectoryFiles(fileList, entry.leafDir(), state);
 						folderService.markFinished(entry.leafDir().toString());
 					} catch (IOException e) {
 						state.incrementErrors();
@@ -353,18 +355,13 @@ public class MediaScanService {
 		for (int i = 0; i < total; i += chunkSize) {
 			List<MediaFile> chunk = batch.subList(i, Math.min(i + chunkSize, total));
 			futures.add(executor.submit(() -> {
-				for (MediaFile mediaFile : chunk) {
-					try {
-						Path filePath = Paths.get(mediaFile.getPath()).resolve(mediaFile.getFilename());
-						Path rootPath = findRootPath(mediaFile, libraryFolders);
-						scanner.scanTags(mediaFile, filePath, rootPath);
-					} catch (Exception e) {
-						state.incrementErrors();
-						state.addErrorLog("Tag scan failed: " + mediaFile.getPath() + "/" +
-								mediaFile.getFilename() + " — " + e.getMessage());
-					}
-					state.incrementTagged();
+				try {
+					scanner.scanTagsBatch(chunk, mf -> findRootPath(mf, libraryFolders));
+				} catch (Exception e) {
+					state.addErrors(chunk.size());
+					state.addErrorLog("Batch tag scan failed: " + e.getMessage());
 				}
+				state.addTagged(chunk.size());
 			}));
 		}
 
@@ -491,8 +488,8 @@ public class MediaScanService {
 					}
 					ctx.incrementFoldersScanned();
 					try (Stream<Path> files = Files.list(leafDir)) {
-						files.filter(Files::isRegularFile)
-								.forEach(filePath -> scanMediaFile(filePath, ctx));
+						List<Path> fileList = files.filter(Files::isRegularFile).collect(Collectors.toList());
+						scanDirectoryFiles(fileList, leafDir, ctx);
 						folderService.markFinished(leafDir.toString());
 					} catch (IOException e) {
 						ctx.incrementErrors("Failed to list directory: " + leafDir, e.getMessage());
@@ -534,16 +531,19 @@ public class MediaScanService {
 		for (int i = 0; i < total; i += chunkSize) {
 			List<FileScanEntry> chunk = ctx.savedEntries.subList(i, Math.min(i + chunkSize, total));
 			futures.add(executor.submit(() -> {
-				for (FileScanEntry entry : chunk) {
-					MediaTagScanner scanner = tagScanners.get(entry.mediaFile().getKind());
-					if (scanner != null) {
-						try {
-							scanner.scanTags(entry.mediaFile(), entry.filePath(), entry.root());
-						} catch (Exception e) {
-							ctx.incrementErrors("Tag scan failed: " + entry.filePath(), e.getMessage());
-						}
+				Map<MediaKind, List<FileScanEntry>> byKind = chunk.stream()
+						.collect(Collectors.groupingBy(e -> e.mediaFile().getKind()));
+				for (Map.Entry<MediaKind, List<FileScanEntry>> kindEntry : byKind.entrySet()) {
+					MediaTagScanner scanner = tagScanners.get(kindEntry.getKey());
+					if (scanner == null) continue;
+					List<MediaFile> kindFiles = kindEntry.getValue().stream()
+							.map(FileScanEntry::mediaFile).collect(Collectors.toList());
+					try {
+						scanner.scanTagsBatch(kindFiles, mf -> ctx.root);
+					} catch (Exception e) {
+						ctx.incrementErrors("Batch tag scan failed for " + kindEntry.getKey(), e.getMessage());
 					}
-					ctx.incrementTagged();
+					ctx.addTagged(kindFiles.size());
 				}
 			}));
 		}
@@ -576,63 +576,90 @@ public class MediaScanService {
 	}
 
 	/**
-	 * Processes a single file during Phase 2 (synchronous path): resolves its
-	 * {@link MediaKind} by extension, skips it if already indexed, otherwise saves a
-	 * {@link MediaFile} record and adds the entry to the context for Phase 3 processing.
+	 * Phase 2 (synchronous) — processes all regular files from a single leaf directory
+	 * as one batch: fetches existing filenames with one query, builds new
+	 * {@link MediaFile} objects for unseen files, and persists them all with one
+	 * {@code saveAll()} call so that N files become 1 SELECT + 1 transaction instead of
+	 * N individual SELECTs + N individual transactions.
 	 *
-	 * @param filePath the path to the file
-	 * @param ctx      mutable scan state updated as files are processed
+	 * @param files   regular files in the directory
+	 * @param leafDir the directory being scanned
+	 * @param ctx     mutable scan state updated as files are processed
 	 */
-	private void scanMediaFile(Path filePath, ScanContext ctx) {
-		Optional<MediaKind> kindOpt = resolveKind(filePath);
-		if (kindOpt.isEmpty()) return;
+	private void scanDirectoryFiles(List<Path> files, Path leafDir, ScanContext ctx) {
+		String parentPath = leafDir.toString();
 
-		String filename = filePath.getFileName().toString();
-		String parentPath = filePath.getParent() != null ? filePath.getParent().toString() : "";
+		Set<String> existing = new HashSet<>(mediaFileRepository.findByPath(parentPath)
+				.stream().map(MediaFile::getFilename).collect(Collectors.toSet()));
 
-		if (mediaFileRepository.findByPathAndFilename(parentPath, filename).isPresent()) {
-			ctx.incrementSkipped();
-			return;
+		List<Path> newPaths = new ArrayList<>();
+		List<MediaFile> toSave = new ArrayList<>();
+
+		for (Path filePath : files) {
+			Optional<MediaKind> kindOpt = resolveKind(filePath);
+			if (kindOpt.isEmpty()) continue;
+			String filename = filePath.getFileName().toString();
+			if (existing.contains(filename)) {
+				ctx.incrementSkipped();
+				continue;
+			}
+			newPaths.add(filePath);
+			toSave.add(new MediaFile(parentPath, filename, null, kindOpt.get()));
 		}
 
+		if (toSave.isEmpty()) return;
+
 		try {
-			MediaFile mediaFile = new MediaFile(parentPath, filename, null, kindOpt.get());
-			mediaFileRepository.save(mediaFile);
-			ctx.savedEntries.add(new FileScanEntry(mediaFile, filePath, ctx.root));
-			ctx.incrementAdded();
+			List<MediaFile> saved = mediaFileRepository.saveAll(toSave);
+			for (int i = 0; i < saved.size(); i++) {
+				ctx.savedEntries.add(new FileScanEntry(saved.get(i), newPaths.get(i), ctx.root));
+			}
+			ctx.addAdded(saved.size());
 		} catch (Exception e) {
-			ctx.incrementErrors("Save failed: " + filePath, e.getMessage());
+			ctx.incrementErrors("Batch save failed for: " + parentPath, e.getMessage());
 		}
 	}
 
 	/**
-	 * Processes a single file during Phase 2 (background path): resolves its
-	 * {@link MediaKind}, skips already-indexed files, and saves a {@link MediaFile} record
-	 * for new files. Phase 3 will query the DB for untagged records rather than tracking
-	 * the saved file here.
+	 * Phase 2 (background) — processes all regular files from a single leaf directory
+	 * as one batch: fetches existing filenames with one query, builds new
+	 * {@link MediaFile} objects for unseen files, and persists them all with one
+	 * {@code saveAll()} call.  Phase 3 re-queries the DB for untagged records, so no
+	 * entry tracking is needed here.
 	 *
-	 * @param filePath the path to the file
-	 * @param state    job state for counter updates and error logging
+	 * @param files   regular files in the directory
+	 * @param leafDir the directory being scanned
+	 * @param state   job state for counter updates and error logging
 	 */
-	private void saveMediaFile(Path filePath, ScanJobState state) {
-		Optional<MediaKind> kindOpt = resolveKind(filePath);
-		if (kindOpt.isEmpty()) return;
+	private void saveDirectoryFiles(List<Path> files, Path leafDir, ScanJobState state) {
+		String parentPath = leafDir.toString();
 
-		String filename = filePath.getFileName().toString();
-		String parentPath = filePath.getParent() != null ? filePath.getParent().toString() : "";
+		Set<String> existing = new HashSet<>(mediaFileRepository.findByPath(parentPath)
+				.stream().map(MediaFile::getFilename).collect(Collectors.toSet()));
 
-		if (mediaFileRepository.findByPathAndFilename(parentPath, filename).isPresent()) {
-			state.incrementSkipped();
-			return;
+		List<MediaFile> toSave = new ArrayList<>();
+		int skipped = 0;
+
+		for (Path filePath : files) {
+			Optional<MediaKind> kindOpt = resolveKind(filePath);
+			if (kindOpt.isEmpty()) continue;
+			String filename = filePath.getFileName().toString();
+			if (existing.contains(filename)) {
+				skipped++;
+				continue;
+			}
+			toSave.add(new MediaFile(parentPath, filename, null, kindOpt.get()));
 		}
 
+		if (skipped > 0) state.addSkipped(skipped);
+		if (toSave.isEmpty()) return;
+
 		try {
-			MediaFile mediaFile = new MediaFile(parentPath, filename, null, kindOpt.get());
-			mediaFileRepository.save(mediaFile);
-			state.incrementAdded();
+			mediaFileRepository.saveAll(toSave);
+			state.addAdded(toSave.size());
 		} catch (Exception e) {
-			state.incrementErrors();
-			state.addErrorLog("Save failed: " + filePath + " — " + e.getMessage());
+			state.addErrors(toSave.size());
+			state.addErrorLog("Batch save failed for: " + parentPath + " — " + e.getMessage());
 		}
 	}
 
@@ -777,6 +804,11 @@ public class MediaScanService {
 			if (jobState != null) jobState.incrementAdded();
 		}
 
+		void addAdded(int n) {
+			added.addAndGet(n);
+			if (jobState != null) jobState.addAdded(n);
+		}
+
 		void incrementSkipped() {
 			skipped.incrementAndGet();
 			if (jobState != null) jobState.incrementSkipped();
@@ -812,6 +844,10 @@ public class MediaScanService {
 
 		void incrementTagged() {
 			if (jobState != null) jobState.incrementTagged();
+		}
+
+		void addTagged(int n) {
+			if (jobState != null) jobState.addTagged(n);
 		}
 	}
 

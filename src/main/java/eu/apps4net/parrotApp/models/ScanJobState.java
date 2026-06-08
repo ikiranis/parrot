@@ -279,6 +279,15 @@ public class ScanJobState {
 		added.incrementAndGet();
 	}
 
+	/**
+	 * Adds {@code n} to the added-files counter atomically.
+	 *
+	 * @param n number of added files to add
+	 */
+	public void addAdded(int n) {
+		added.addAndGet(n);
+	}
+
 	/** Increments the skipped-files counter by one. */
 	public void incrementSkipped() {
 		skipped.incrementAndGet();
@@ -298,6 +307,15 @@ public class ScanJobState {
 		errors.incrementAndGet();
 	}
 
+	/**
+	 * Adds {@code n} to the error counter atomically.
+	 *
+	 * @param n number of errors to add
+	 */
+	public void addErrors(int n) {
+		errors.addAndGet(n);
+	}
+
 	/** Increments the scanned-folders counter by one. */
 	public void incrementFoldersScanned() {
 		foldersScanned.incrementAndGet();
@@ -311,6 +329,15 @@ public class ScanJobState {
 	/** Increments the tagged-files counter by one. */
 	public void incrementTagged() {
 		tagged.incrementAndGet();
+	}
+
+	/**
+	 * Adds {@code n} to the tagged-files counter atomically.
+	 *
+	 * @param n number of tagged files to add
+	 */
+	public void addTagged(int n) {
+		tagged.addAndGet(n);
 	}
 
 	/**
