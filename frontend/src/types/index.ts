@@ -91,6 +91,20 @@ export type LibraryFolder = {
 	path: string
 }
 
+/** A single entry in the tag export/import payload. */
+export type TagExportItem = {
+	path: string
+	filename: string
+	rating: number | null
+	viewCount: number | null
+}
+
+/** Result returned by the tag import endpoint. */
+export type TagImportResult = {
+	updated: number
+	notFound: number
+}
+
 /** An application configuration setting as returned by the API. */
 export type Setting = {
 	id: number

@@ -3,7 +3,8 @@ import { ref, Ref, onMounted } from "vue"
 import { language } from "@/functions/languageStore.ts"
 import { errorStore } from "@/components/error/errorStore.ts"
 import { getLibraryFolders, deleteLibraryFolder } from "@/api/libraryFolder.ts"
-import type { LibraryFolder } from "@/types"
+import { exportTagData, importTagData } from "@/api/photo.ts"
+import type { LibraryFolder, TagExportItem } from "@/types"
 import router from "@/router"
 import Error from "@/components/error/Error.vue"
 import Loading from "@/components/utilities/Loading.vue"
@@ -11,6 +12,9 @@ import ScanProgress from "@/components/scan/ScanProgress.vue"
 
 const loading = ref(false)
 const folders: Ref<LibraryFolder[]> = ref([])
+const importFileInput = ref<HTMLInputElement | null>(null)
+const exportLoading = ref(false)
+const importLoading = ref(false)
 
 onMounted(() => {
 	loadFolders()
@@ -51,6 +55,48 @@ const onDelete = async (id: number) => {
 			errorStore.set(true, err.response?.data?.message ?? err.message ?? "", err.response?.data?.status ?? 500)
 		})
 }
+
+const onExport = async () => {
+	exportLoading.value = true
+	try {
+		const data = await exportTagData()
+		const json = JSON.stringify(data, null, 2)
+		const blob = new Blob([json], { type: 'application/json' })
+		const url = URL.createObjectURL(blob)
+		const a = document.createElement('a')
+		a.href = url
+		a.download = 'parrot-tags.json'
+		a.click()
+		URL.revokeObjectURL(url)
+	} catch (error: unknown) {
+		const err = error as { response?: { data?: { message?: string; status?: number } }; message?: string }
+		errorStore.set(true, err.response?.data?.message ?? err.message ?? "", err.response?.data?.status ?? 500)
+	} finally {
+		exportLoading.value = false
+	}
+}
+
+const onImport = () => {
+	importFileInput.value?.click()
+}
+
+const onFileSelected = async (event: Event) => {
+	const file = (event.target as HTMLInputElement).files?.[0]
+	if (!file) return
+	importLoading.value = true
+	try {
+		const text = await file.text()
+		const items: TagExportItem[] = JSON.parse(text)
+		const result = await importTagData(items)
+		alert(`${language.get("Import complete")}: ${result.updated} ${language.get("updated")}, ${result.notFound} ${language.get("not found")}`)
+	} catch (error: unknown) {
+		const err = error as { response?: { data?: { message?: string; status?: number } }; message?: string }
+		errorStore.set(true, err.response?.data?.message ?? err.message ?? "", err.response?.data?.status ?? 500)
+	} finally {
+		importLoading.value = false
+		;(event.target as HTMLInputElement).value = ''
+	}
+}
 </script>
 
 <template>
@@ -62,6 +108,21 @@ const onDelete = async (id: number) => {
 					<span v-if="loading" class="spinner-border spinner-border-sm me-1" role="status"></span>
 					{{ language.get("Refresh") }}
 				</button>
+				<button class="btn btn-outline-secondary btn-sm" :disabled="exportLoading || importLoading" @click="onExport">
+					<span v-if="exportLoading" class="spinner-border spinner-border-sm me-1" role="status"></span>
+					{{ language.get("Export Tags") }}
+				</button>
+				<button class="btn btn-outline-secondary btn-sm" :disabled="exportLoading || importLoading" @click="onImport">
+					<span v-if="importLoading" class="spinner-border spinner-border-sm me-1" role="status"></span>
+					{{ language.get("Import Tags") }}
+				</button>
+				<input
+					ref="importFileInput"
+					type="file"
+					accept=".json,application/json"
+					class="d-none"
+					@change="onFileSelected"
+				/>
 				<button class="btn btn-primary btn-sm" :disabled="loading" @click="onAdd">
 					{{ language.get("Add Folder") }}
 				</button>

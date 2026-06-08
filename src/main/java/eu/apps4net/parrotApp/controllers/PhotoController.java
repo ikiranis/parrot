@@ -17,6 +17,7 @@ import eu.apps4net.parrotApp.models.MediaKind;
 import eu.apps4net.parrotApp.models.PhotoDetailDTO;
 import eu.apps4net.parrotApp.models.PhotoTag;
 import eu.apps4net.parrotApp.models.ScanResult;
+import eu.apps4net.parrotApp.models.TagExportItemDTO;
 import eu.apps4net.parrotApp.repositories.MediaFileRepository;
 import eu.apps4net.parrotApp.repositories.PhotoTagRepository;
 import eu.apps4net.parrotApp.services.MediaScanService;
@@ -237,5 +238,60 @@ public class PhotoController {
 		photoTagRepository.deleteAllByMediaFileKind(MediaKind.IMAGE);
 		mediaFileRepository.deleteAllByKind(MediaKind.IMAGE);
 		return ResponseEntity.noContent().build();
+	}
+
+	/**
+	 * Exports all tag entries that have at least one view or a rating set.
+	 * Each entry includes the file path, filename, rating, and view count.
+	 *
+	 * @return list of {@link TagExportItemDTO} for tags with user-assigned data
+	 */
+	@GetMapping("tags/export")
+	public List<TagExportItemDTO> exportTags() {
+		return photoTagRepository.findAllWithViewsOrRating().stream()
+				.map(tag -> new TagExportItemDTO(
+						tag.getMediaFile().getPath(),
+						tag.getMediaFile().getFilename(),
+						tag.getRating(),
+						tag.getViewCount()))
+				.toList();
+	}
+
+	/**
+	 * Imports tag data from a JSON payload and updates the matching records in the database.
+	 * Each item is matched by path and filename. A {@link PhotoTag} is created if none exists.
+	 * Only {@code rating} and {@code viewCount} fields are updated; all other metadata is preserved.
+	 *
+	 * @param items list of {@link TagExportItemDTO} entries to import
+	 * @return a map with keys {@code updated} (matched and saved) and {@code notFound} (unmatched entries)
+	 */
+	@PostMapping("tags/import")
+	@Transactional
+	public ResponseEntity<Map<String, Integer>> importTags(@RequestBody List<TagExportItemDTO> items) {
+		int updated = 0;
+		int notFound = 0;
+		for (TagExportItemDTO item : items) {
+			Optional<MediaFile> mediaFileOpt = mediaFileRepository.findByPathAndFilename(item.getPath(), item.getFilename());
+			if (mediaFileOpt.isEmpty()) {
+				notFound++;
+				continue;
+			}
+			MediaFile mediaFile = mediaFileOpt.get();
+			PhotoTag tag = photoTagRepository.findByMediaFile(mediaFile)
+					.orElseGet(() -> {
+						PhotoTag t = new PhotoTag();
+						t.setMediaFile(mediaFile);
+						return t;
+					});
+			if (item.getRating() != null) {
+				tag.setRating(item.getRating());
+			}
+			if (item.getViewCount() != null) {
+				tag.setViewCount(item.getViewCount());
+			}
+			photoTagRepository.save(tag);
+			updated++;
+		}
+		return ResponseEntity.ok(Map.of("updated", updated, "notFound", notFound));
 	}
 }

@@ -1,6 +1,6 @@
 import axios from "axios";
 import config from "@/functions/config.ts";
-import type { ScanResult, PhotoDetail } from "@/types";
+import type { ScanResult, PhotoDetail, TagExportItem, TagImportResult } from "@/types";
 
 /**
  * Triggers a photo scan for the given server-side folder path.
@@ -134,5 +134,26 @@ export const setPhotoRating = async (id: number, rating: number): Promise<import
  */
 export const incrementPhotoView = async (id: number): Promise<import("@/types").PhotoDetail> => {
     const response = await axios.post(config.defaultServer() + `/api/photos/${id}/view`)
+    return response.data
+}
+
+/**
+ * Fetches all tag entries that have at least one view or a rating set.
+ *
+ * @returns array of {@link TagExportItem} records
+ */
+export const exportTagData = async (): Promise<TagExportItem[]> => {
+    const response = await axios.get(config.defaultServer() + '/api/photos/tags/export')
+    return response.data
+}
+
+/**
+ * Sends a list of tag entries to the server and updates matching records.
+ *
+ * @param items array of {@link TagExportItem} entries parsed from an import file
+ * @returns a {@link TagImportResult} with counts of updated and not-found entries
+ */
+export const importTagData = async (items: TagExportItem[]): Promise<TagImportResult> => {
+    const response = await axios.post(config.defaultServer() + '/api/photos/tags/import', items)
     return response.data
 }

@@ -276,6 +276,31 @@
         <language code="el">Προσθήκη Φακέλου</language>
     </entry>
 
+    <entry id="Export Tags">
+        <language code="en">Export Tags</language>
+        <language code="el">Εξαγωγή Ετικετών</language>
+    </entry>
+
+    <entry id="Import Tags">
+        <language code="en">Import Tags</language>
+        <language code="el">Εισαγωγή Ετικετών</language>
+    </entry>
+
+    <entry id="Import complete">
+        <language code="en">Import complete</language>
+        <language code="el">Εισαγωγή ολοκληρώθηκε</language>
+    </entry>
+
+    <entry id="updated">
+        <language code="en">updated</language>
+        <language code="el">ενημερώθηκαν</language>
+    </entry>
+
+    <entry id="not found">
+        <language code="en">not found</language>
+        <language code="el">δεν βρέθηκαν</language>
+    </entry>
+
     <entry id="Edit">
         <language code="en">Edit</language>
         <language code="el">Επεξεργασία</language>
