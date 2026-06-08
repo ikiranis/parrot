@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.*;
 
 import eu.apps4net.parrotApp.exceptions.NotFoundException;
 import eu.apps4net.parrotApp.exceptions.ProcessingErrorException;
+import eu.apps4net.parrotApp.models.LibraryFolder;
 import eu.apps4net.parrotApp.models.MediaFile;
 import eu.apps4net.parrotApp.models.MediaKind;
 import eu.apps4net.parrotApp.models.PhotoDetailDTO;
@@ -20,6 +21,7 @@ import eu.apps4net.parrotApp.models.ScanResult;
 import eu.apps4net.parrotApp.models.TagExportItemDTO;
 import eu.apps4net.parrotApp.repositories.MediaFileRepository;
 import eu.apps4net.parrotApp.repositories.PhotoTagRepository;
+import eu.apps4net.parrotApp.services.LibraryFolderService;
 import eu.apps4net.parrotApp.services.MediaScanService;
 
 import java.io.File;
@@ -47,27 +49,34 @@ public class PhotoController {
 	/** Repository for photo tag records linked to media files. */
 	private final PhotoTagRepository photoTagRepository;
 
+	/** Service for looking up library folders, used to resolve full paths during tag import/export. */
+	private final LibraryFolderService libraryFolderService;
+
 	/**
 	 * Constructs a new {@code PhotoController}.
 	 *
 	 * @param mediaScanService    the media scanning service
 	 * @param mediaFileRepository the media file repository
 	 * @param photoTagRepository  the photo tag repository
+	 * @param libraryFolderService the library folder service
 	 */
 	public PhotoController(MediaScanService mediaScanService,
 						   MediaFileRepository mediaFileRepository,
-						   PhotoTagRepository photoTagRepository) {
+						   PhotoTagRepository photoTagRepository,
+						   LibraryFolderService libraryFolderService) {
 		this.mediaScanService = mediaScanService;
 		this.mediaFileRepository = mediaFileRepository;
 		this.photoTagRepository = photoTagRepository;
+		this.libraryFolderService = libraryFolderService;
 	}
 
 	/**
 	 * Triggers a recursive folder scan for image files.
+	 * The given folder path must match a configured library folder.
 	 *
 	 * @param request JSON body containing a {@code "folderPath"} key with the absolute server path
 	 * @return {@link ScanResult} with counts of added, skipped, and errored files
-	 * @throws ProcessingErrorException if {@code folderPath} is blank
+	 * @throws ProcessingErrorException if {@code folderPath} is blank or does not match a library folder
 	 */
 	@PostMapping("scan")
 	public ScanResult scanFolder(@RequestBody Map<String, String> request) {
@@ -139,7 +148,8 @@ public class PhotoController {
 
 	/**
 	 * Serves the raw image bytes for the specified photo.
-	 * The file is read from the path stored in the {@link MediaFile} record.
+	 * The full file path is reconstructed from the library folder root and the
+	 * relative path stored in the {@link MediaFile} record.
 	 *
 	 * @param id the primary key of the media file
 	 * @return the image as a binary response with the appropriate content type
@@ -150,7 +160,9 @@ public class PhotoController {
 		MediaFile mediaFile = mediaFileRepository.findById(id)
 				.orElseThrow(() -> new NotFoundException("Photo not found: " + id));
 
-		Path filePath = Paths.get(mediaFile.getPath(), mediaFile.getFilename());
+		Path filePath = Paths.get(mediaFile.getLibraryFolder().getPath())
+				.resolve(mediaFile.getPath())
+				.resolve(mediaFile.getFilename());
 		File file = filePath.toFile();
 
 		if (!file.exists() || !file.isFile()) {
@@ -242,24 +254,26 @@ public class PhotoController {
 
 	/**
 	 * Exports all tag entries that have at least one view or a rating set.
-	 * Each entry includes the file path, filename, rating, and view count.
+	 * Each entry includes the full absolute file path, filename, rating, and view count.
 	 *
 	 * @return list of {@link TagExportItemDTO} for tags with user-assigned data
 	 */
 	@GetMapping("tags/export")
 	public List<TagExportItemDTO> exportTags() {
 		return photoTagRepository.findAllWithViewsOrRating().stream()
-				.map(tag -> new TagExportItemDTO(
-						tag.getMediaFile().getPath(),
-						tag.getMediaFile().getFilename(),
-						tag.getRating(),
-						tag.getViewCount()))
+				.map(tag -> {
+					MediaFile mf = tag.getMediaFile();
+					String fullPath = Paths.get(mf.getLibraryFolder().getPath(), mf.getPath()).toString();
+					return new TagExportItemDTO(fullPath, mf.getFilename(), tag.getRating(), tag.getViewCount());
+				})
 				.toList();
 	}
 
 	/**
 	 * Imports tag data from a JSON payload and updates the matching records in the database.
-	 * Each item is matched by path and filename. A {@link PhotoTag} is created if none exists.
+	 * Each item is matched by its full absolute path and filename. The path is resolved against
+	 * the configured library folders to find the relative path stored in the database.
+	 * A {@link PhotoTag} is created if none exists.
 	 * Only {@code rating} and {@code viewCount} fields are updated; all other metadata is preserved.
 	 *
 	 * @param items list of {@link TagExportItemDTO} entries to import
@@ -271,7 +285,15 @@ public class PhotoController {
 		int updated = 0;
 		int notFound = 0;
 		for (TagExportItemDTO item : items) {
-			Optional<MediaFile> mediaFileOpt = mediaFileRepository.findByPathAndFilename(item.getPath(), item.getFilename());
+			Optional<LibraryFolder> lfOpt = libraryFolderService.findMatchingForPath(item.getPath());
+			if (lfOpt.isEmpty()) {
+				notFound++;
+				continue;
+			}
+			LibraryFolder lf = lfOpt.get();
+			String relativePath = Paths.get(lf.getPath()).relativize(Paths.get(item.getPath())).toString();
+			Optional<MediaFile> mediaFileOpt = mediaFileRepository
+					.findByLibraryFolderAndPathAndFilename(lf, relativePath, item.getFilename());
 			if (mediaFileOpt.isEmpty()) {
 				notFound++;
 				continue;

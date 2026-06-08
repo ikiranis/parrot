@@ -4,6 +4,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
+import eu.apps4net.parrotApp.exceptions.ProcessingErrorException;
 import eu.apps4net.parrotApp.models.LibraryFolder;
 import eu.apps4net.parrotApp.models.MediaFile;
 import eu.apps4net.parrotApp.models.MediaKind;
@@ -127,25 +128,30 @@ public class MediaScanService {
 	}
 
 	/**
-	 * Scans the given folder recursively for media files and saves them to the database.
+	 * Scans the library folder matching the given path for media files and saves them
+	 * to the database. The given path must exactly match a configured {@link LibraryFolder}.
 	 *
-	 * Phase 1 collects all leaf directories under {@code folderPath} and asks
+	 * Phase 1 collects all leaf directories under the library folder and asks
 	 * {@link FolderService#checkAndSaveFolder} whether each one has changed.
 	 * Phase 2 scans the direct files of every changed leaf directory and persists a
 	 * {@link MediaFile} for each new file whose extension maps to a known {@link MediaKind}.
 	 * Phase 3 iterates over the saved files and invokes the matching {@link MediaTagScanner}.
 	 *
-	 * @param folderPath absolute path to the root folder to scan
+	 * @param folderPath absolute path to the library folder to scan; must match a configured library folder
 	 * @return {@link ScanResult} with counts of added, skipped, and errored files
+	 * @throws ProcessingErrorException if the path does not match any configured library folder
 	 */
 	public ScanResult scanFolder(String folderPath) {
-		return scanFolder(folderPath, null);
+		LibraryFolder libraryFolder = libraryFolderService.findMatchingForPath(folderPath)
+				.orElseThrow(() -> new ProcessingErrorException(
+						"No library folder configured for path: " + folderPath));
+		return scanLibraryFolder(libraryFolder, null);
 	}
 
 	/**
 	 * Scans all configured {@link LibraryFolder} paths and aggregates the results
 	 * into a single {@link ScanResult}.
-	 * Each library folder is scanned independently via {@link #scanFolder(String)}.
+	 * Each library folder is scanned independently.
 	 *
 	 * @return aggregated {@link ScanResult} across all library folders, or a no-op result
 	 *         if no library folders are configured
@@ -160,7 +166,7 @@ public class MediaScanService {
 		int totalAdded = 0, totalSkipped = 0, totalErrors = 0, totalFoldersScanned = 0, totalFoldersSkipped = 0;
 
 		for (LibraryFolder libraryFolder : libraryFolders) {
-			ScanResult result = scanFolder(libraryFolder.getPath());
+			ScanResult result = scanLibraryFolder(libraryFolder, null);
 			totalAdded += result.added();
 			totalSkipped += result.skipped();
 			totalErrors += result.errors();
@@ -251,7 +257,7 @@ public class MediaScanService {
 			}
 			try {
 				for (Path leafDir : collectLeafDirs(root)) {
-					allLeafDirs.add(new LeafDirEntry(leafDir, root));
+					allLeafDirs.add(new LeafDirEntry(leafDir, root, lf));
 				}
 			} catch (IOException e) {
 				state.incrementErrors();
@@ -286,7 +292,7 @@ public class MediaScanService {
 				for (LeafDirEntry entry : chunk) {
 					boolean hasChanges;
 					try {
-						hasChanges = folderService.checkAndSaveFolder(entry.leafDir(), entry.root());
+						hasChanges = folderService.checkAndSaveFolder(entry.leafDir(), entry.root(), entry.libraryFolder());
 					} catch (IOException e) {
 						state.incrementErrors();
 						state.addErrorLog("Folder check failed: " + entry.leafDir() + " — " + e.getMessage());
@@ -300,8 +306,9 @@ public class MediaScanService {
 					state.incrementFoldersScanned();
 					try (Stream<Path> files = Files.list(entry.leafDir())) {
 						List<Path> fileList = files.filter(Files::isRegularFile).collect(Collectors.toList());
-						saveDirectoryFiles(fileList, entry.leafDir(), state);
-						folderService.markFinished(entry.leafDir().toString());
+						saveDirectoryFiles(fileList, entry.leafDir(), entry.libraryFolder(), entry.root(), state);
+						String relativePath = entry.root().relativize(entry.leafDir()).toString();
+						folderService.markFinished(entry.libraryFolder(), relativePath);
 					} catch (IOException e) {
 						state.incrementErrors();
 						state.addErrorLog("Failed to list directory: " + entry.leafDir() + " — " + e.getMessage());
@@ -324,8 +331,6 @@ public class MediaScanService {
 	 * @param state job state for live counter updates and error logging
 	 */
 	private void runTagScanners(ScanJobState state) {
-		List<LibraryFolder> libraryFolders = libraryFolderService.getAll();
-
 		long totalToTag = 0;
 		for (MediaKind kind : tagScanners.keySet()) {
 			totalToTag += mediaFileRepository.countByKindWithoutPhotoTag(kind);
@@ -341,7 +346,7 @@ public class MediaScanService {
 						.findByKindWithoutPhotoTag(entry.getKey(), PageRequest.of(0, TAG_SCAN_BATCH_SIZE))
 						.getContent();
 				if (batch.isEmpty()) break;
-				processTagBatch(batch, entry.getValue(), libraryFolders, state);
+				processTagBatch(batch, entry.getValue(), state);
 			} while (true);
 		}
 	}
@@ -349,14 +354,13 @@ public class MediaScanService {
 	/**
 	 * Partitions a single tag batch into chunks and processes each chunk in a dedicated thread,
 	 * invoking the given {@link MediaTagScanner} for every file.
+	 * The library root for each file is resolved directly from its {@link LibraryFolder} association.
 	 *
-	 * @param batch          MediaFile records to tag
-	 * @param scanner        the scanner to use for every file in this batch
-	 * @param libraryFolders configured library folders, used to resolve the root path
-	 * @param state          job state for live counter updates and error logging
+	 * @param batch   MediaFile records to tag
+	 * @param scanner the scanner to use for every file in this batch
+	 * @param state   job state for live counter updates and error logging
 	 */
-	private void processTagBatch(List<MediaFile> batch, MediaTagScanner scanner,
-								 List<LibraryFolder> libraryFolders, ScanJobState state) {
+	private void processTagBatch(List<MediaFile> batch, MediaTagScanner scanner, ScanJobState state) {
 		int total = batch.size();
 		int threads = Math.min(settingService.getMaxThreads(), total);
 		int chunkSize = (int) Math.ceil((double) total / threads);
@@ -368,7 +372,7 @@ public class MediaScanService {
 			List<MediaFile> chunk = batch.subList(i, Math.min(i + chunkSize, total));
 			futures.add(executor.submit(() -> {
 				try {
-					scanner.scanTagsBatch(chunk, mf -> findRootPath(mf, libraryFolders));
+					scanner.scanTagsBatch(chunk, mf -> Paths.get(mf.getLibraryFolder().getPath()));
 				} catch (Exception e) {
 					state.addErrors(chunk.size());
 					state.addErrorLog("Batch tag scan failed: " + e.getMessage());
@@ -382,25 +386,25 @@ public class MediaScanService {
 	}
 
 	/**
-	 * Scans the given folder recursively, mirroring each counter increment into
+	 * Scans a single library folder recursively, mirroring each counter increment into
 	 * {@code jobState} when provided so that background scans expose live progress.
 	 *
-	 * @param folderPath absolute path to the root folder to scan
-	 * @param jobState   job state to update in real time, or {@code null} for synchronous scans
+	 * @param libraryFolder the library folder to scan
+	 * @param jobState      job state to update in real time, or {@code null} for synchronous scans
 	 * @return {@link ScanResult} with counts of added, skipped, and errored files
 	 */
-	private ScanResult scanFolder(String folderPath, ScanJobState jobState) {
-		Path root = Paths.get(folderPath);
+	private ScanResult scanLibraryFolder(LibraryFolder libraryFolder, ScanJobState jobState) {
+		Path root = Paths.get(libraryFolder.getPath());
 
 		if (!Files.exists(root)) {
-			return new ScanResult(0, 0, 0, 0, 0, "Folder does not exist: " + folderPath);
+			return new ScanResult(0, 0, 0, 0, 0, "Folder does not exist: " + libraryFolder.getPath());
 		}
 
 		if (!Files.isDirectory(root)) {
-			return new ScanResult(0, 0, 0, 0, 0, "Path is not a directory: " + folderPath);
+			return new ScanResult(0, 0, 0, 0, 0, "Path is not a directory: " + libraryFolder.getPath());
 		}
 
-		ScanContext ctx = new ScanContext(root, jobState);
+		ScanContext ctx = new ScanContext(libraryFolder, jobState);
 
 		List<Path> leafDirs;
 		try {
@@ -488,7 +492,7 @@ public class MediaScanService {
 				for (Path leafDir : chunk) {
 					boolean hasChanges;
 					try {
-						hasChanges = folderService.checkAndSaveFolder(leafDir, ctx.root);
+						hasChanges = folderService.checkAndSaveFolder(leafDir, ctx.root, ctx.libraryFolder);
 					} catch (IOException e) {
 						ctx.incrementErrors("Folder check failed: " + leafDir, e.getMessage());
 						continue;
@@ -502,7 +506,8 @@ public class MediaScanService {
 					try (Stream<Path> files = Files.list(leafDir)) {
 						List<Path> fileList = files.filter(Files::isRegularFile).collect(Collectors.toList());
 						scanDirectoryFiles(fileList, leafDir, ctx);
-						folderService.markFinished(leafDir.toString());
+						String relativePath = ctx.root.relativize(leafDir).toString();
+						folderService.markFinished(ctx.libraryFolder, relativePath);
 					} catch (IOException e) {
 						ctx.incrementErrors("Failed to list directory: " + leafDir, e.getMessage());
 					}
@@ -599,9 +604,10 @@ public class MediaScanService {
 	 * @param ctx     mutable scan state updated as files are processed
 	 */
 	private void scanDirectoryFiles(List<Path> files, Path leafDir, ScanContext ctx) {
-		String parentPath = leafDir.toString();
+		String relativePath = ctx.root.relativize(leafDir).toString();
 
-		Set<String> existing = new HashSet<>(mediaFileRepository.findFilenamesByPath(parentPath));
+		Set<String> existing = new HashSet<>(
+				mediaFileRepository.findFilenamesByLibraryFolderAndPath(ctx.libraryFolder, relativePath));
 
 		List<Path> newPaths = new ArrayList<>();
 		List<MediaFile> toSave = new ArrayList<>();
@@ -615,7 +621,7 @@ public class MediaScanService {
 				continue;
 			}
 			newPaths.add(filePath);
-			toSave.add(new MediaFile(parentPath, filename, null, kindOpt.get()));
+			toSave.add(new MediaFile(ctx.libraryFolder, relativePath, filename, null, kindOpt.get()));
 		}
 
 		if (toSave.isEmpty()) return;
@@ -623,11 +629,11 @@ public class MediaScanService {
 		try {
 			List<MediaFile> saved = mediaFileRepository.saveAll(toSave);
 			for (int i = 0; i < saved.size(); i++) {
-				ctx.savedEntries.add(new FileScanEntry(saved.get(i), newPaths.get(i), ctx.root));
+				ctx.savedEntries.add(new FileScanEntry(saved.get(i), newPaths.get(i)));
 			}
 			ctx.addAdded(saved.size());
 		} catch (Exception e) {
-			ctx.incrementErrors("Batch save failed for: " + parentPath, e.getMessage());
+			ctx.incrementErrors("Batch save failed for: " + relativePath, e.getMessage());
 		}
 	}
 
@@ -637,14 +643,18 @@ public class MediaScanService {
 	 * new rows via JDBC so that no entities are loaded into the JPA persistence context.
 	 * Phase 3 re-queries the DB for untagged records, so no entry tracking is needed here.
 	 *
-	 * @param files   regular files in the directory
-	 * @param leafDir the directory being scanned
-	 * @param state   job state for counter updates and error logging
+	 * @param files         regular files in the directory
+	 * @param leafDir       the directory being scanned
+	 * @param libraryFolder the library folder this directory belongs to
+	 * @param root          the library folder root path, used to compute the relative path
+	 * @param state         job state for counter updates and error logging
 	 */
-	private void saveDirectoryFiles(List<Path> files, Path leafDir, ScanJobState state) {
-		String parentPath = leafDir.toString();
+	private void saveDirectoryFiles(List<Path> files, Path leafDir, LibraryFolder libraryFolder,
+									Path root, ScanJobState state) {
+		String relativePath = root.relativize(leafDir).toString();
 
-		Set<String> existing = new HashSet<>(mediaFileRepository.findFilenamesByPath(parentPath));
+		Set<String> existing = new HashSet<>(
+				mediaFileRepository.findFilenamesByLibraryFolderAndPath(libraryFolder, relativePath));
 
 		List<Object[]> rows = new ArrayList<>();
 		int skipped = 0;
@@ -657,7 +667,7 @@ public class MediaScanService {
 				skipped++;
 				continue;
 			}
-			rows.add(new Object[]{parentPath, filename, null, kindOpt.get().name()});
+			rows.add(new Object[]{libraryFolder.getId(), relativePath, filename, null, kindOpt.get().name()});
 		}
 
 		if (skipped > 0) state.addSkipped(skipped);
@@ -665,13 +675,13 @@ public class MediaScanService {
 
 		try {
 			jdbcTemplate.batchUpdate(
-					"INSERT INTO media_file (path, filename, hash, kind) VALUES (?, ?, ?, ?)",
+					"INSERT INTO media_file (library_folder_id, path, filename, hash, kind) VALUES (?, ?, ?, ?, ?)",
 					rows
 			);
 			state.addAdded(rows.size());
 		} catch (Exception e) {
 			state.addErrors(rows.size());
-			state.addErrorLog("Batch save failed for: " + parentPath + " — " + e.getMessage());
+			state.addErrorLog("Batch save failed for: " + relativePath + " — " + e.getMessage());
 		}
 	}
 
@@ -734,24 +744,6 @@ public class MediaScanService {
 	}
 
 	/**
-	 * Finds the library root path that contains the given {@link MediaFile} by checking
-	 * which configured library folder is a prefix of the file's directory path.
-	 * Falls back to the file's own directory if no library folder matches.
-	 *
-	 * @param mediaFile      the media file to locate
-	 * @param libraryFolders all configured library folders
-	 * @return the best-matching library root path, or the file's parent directory
-	 */
-	private Path findRootPath(MediaFile mediaFile, List<LibraryFolder> libraryFolders) {
-		for (LibraryFolder lf : libraryFolders) {
-			if (mediaFile.getPath().startsWith(lf.getPath())) {
-				return Paths.get(lf.getPath());
-			}
-		}
-		return Paths.get(mediaFile.getPath());
-	}
-
-	/**
 	 * Waits for all futures to complete, recording interrupt/execution errors on the state.
 	 *
 	 * @param futures futures to await
@@ -772,13 +764,16 @@ public class MediaScanService {
 
 	/**
 	 * Holds all mutable state for a single synchronous scan run.
-	 * A new instance is created per {@link #scanFolder(String, ScanJobState)} call.
+	 * A new instance is created per {@link #scanLibraryFolder} call.
 	 * When a {@link ScanJobState} is supplied, every counter increment is mirrored into
 	 * it so that background scans expose live progress over the REST API.
 	 */
 	private static class ScanContext {
 
-		/** The root directory of this scan, used for relative path resolution in tag scanners. */
+		/** The library folder being scanned. */
+		final LibraryFolder libraryFolder;
+
+		/** The root directory path of this scan, derived from {@code libraryFolder}. */
 		final Path root;
 
 		/** Optional job state to mirror every counter update into for live progress reporting. */
@@ -803,11 +798,12 @@ public class MediaScanService {
 		final List<FileScanEntry> savedEntries = Collections.synchronizedList(new ArrayList<>());
 
 		/**
-		 * @param root     the root directory of the scan
-		 * @param jobState optional job state to mirror increments into; may be {@code null}
+		 * @param libraryFolder the library folder being scanned
+		 * @param jobState      optional job state to mirror increments into; may be {@code null}
 		 */
-		ScanContext(Path root, ScanJobState jobState) {
-			this.root = root;
+		ScanContext(LibraryFolder libraryFolder, ScanJobState jobState) {
+			this.libraryFolder = libraryFolder;
+			this.root = Paths.get(libraryFolder.getPath());
 			this.jobState = jobState;
 		}
 
@@ -864,21 +860,22 @@ public class MediaScanService {
 	}
 
 	/**
-	 * Associates a leaf directory with the library root it belongs to.
-	 * Used during Phase 1 to preserve the root context needed by tag scanners in Phase 3.
+	 * Associates a leaf directory with the library folder and root path it belongs to.
+	 * Used during Phase 1 to preserve the context needed by Phase 2 and Phase 3.
 	 *
-	 * @param leafDir the leaf directory containing media files
-	 * @param root    the library root this leaf directory belongs to
+	 * @param leafDir       the leaf directory containing media files
+	 * @param root          the library folder root path
+	 * @param libraryFolder the library folder entity this leaf directory belongs to
 	 */
-	private record LeafDirEntry(Path leafDir, Path root) {}
+	private record LeafDirEntry(Path leafDir, Path root, LibraryFolder libraryFolder) {}
 
 	/**
 	 * Intermediate container used during Phase 2 to associate a persisted
-	 * {@link MediaFile} with its original {@link Path} on disk and the library root.
+	 * {@link MediaFile} with its original {@link Path} on disk.
+	 * The library folder is accessible via {@link MediaFile#getLibraryFolder()}.
 	 *
 	 * @param mediaFile the saved media file entity
 	 * @param filePath  the file's location on disk
-	 * @param root      the library root this file belongs to, used by tag scanners
 	 */
-	private record FileScanEntry(MediaFile mediaFile, Path filePath, Path root) {}
+	private record FileScanEntry(MediaFile mediaFile, Path filePath) {}
 }

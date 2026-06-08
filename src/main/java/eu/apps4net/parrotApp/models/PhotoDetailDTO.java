@@ -1,5 +1,6 @@
 package eu.apps4net.parrotApp.models;
 
+import java.nio.file.Paths;
 import java.time.LocalDateTime;
 import java.util.Optional;
 
@@ -87,7 +88,7 @@ public class PhotoDetailDTO {
 	public static PhotoDetailDTO from(MediaFile mediaFile, Optional<PhotoTag> photoTag) {
 		PhotoDetailDTO dto = new PhotoDetailDTO();
 		dto.setId(mediaFile.getId());
-		dto.setPath(mediaFile.getPath());
+		dto.setPath(Paths.get(mediaFile.getLibraryFolder().getPath(), mediaFile.getPath()).toString());
 		dto.setFilename(mediaFile.getFilename());
 		dto.setHash(mediaFile.getHash());
 		dto.setKind(mediaFile.getKind() != null ? mediaFile.getKind().name() : null);

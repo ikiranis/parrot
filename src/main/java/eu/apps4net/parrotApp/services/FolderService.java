@@ -3,6 +3,7 @@ package eu.apps4net.parrotApp.services;
 import org.springframework.stereotype.Service;
 
 import eu.apps4net.parrotApp.models.Folder;
+import eu.apps4net.parrotApp.models.LibraryFolder;
 import eu.apps4net.parrotApp.repositories.FolderRepository;
 
 import java.io.IOException;
@@ -57,13 +58,14 @@ public class FolderService {
 	}
 
 	/**
-	 * Finds a folder by its full absolute path.
+	 * Finds a folder by its library folder and relative path.
 	 *
-	 * @param path the full path of the folder
+	 * @param libraryFolder the library folder the folder belongs to
+	 * @param path          the path relative to the library folder root
 	 * @return an {@link Optional} containing the matching {@link Folder}, or empty if not found
 	 */
-	public Optional<Folder> getFolderByPath(String path) {
-		return folderRepository.findByPath(path);
+	public Optional<Folder> getFolderByPath(LibraryFolder libraryFolder, String path) {
+		return folderRepository.findByLibraryFolderAndPath(libraryFolder, path);
 	}
 
 	/**
@@ -107,13 +109,14 @@ public class FolderService {
 	 * and {@code dirPath}: the root itself is level 0, its direct children are level 1,
 	 * and so on.
 	 *
-	 * @param dirPath the leaf directory to inspect; must be an existing directory
-	 * @param root    the library root used to compute the nesting level
+	 * @param dirPath       the leaf directory to inspect; must be an existing directory
+	 * @param root          the library root used to compute the nesting level and relative path
+	 * @param libraryFolder the library folder this directory belongs to
 	 * @return {@code true} if the directory is new or its content changed and its files
 	 *         should be re-scanned; {@code false} if the directory is unchanged
 	 * @throws IOException if the directory cannot be listed or a file size cannot be read
 	 */
-	public boolean checkAndSaveFolder(Path dirPath, Path root) throws IOException {
+	public boolean checkAndSaveFolder(Path dirPath, Path root, LibraryFolder libraryFolder) throws IOException {
 		List<Path> files = new ArrayList<>();
 		try (Stream<Path> listing = Files.list(dirPath)) {
 			listing.filter(Files::isRegularFile).forEach(files::add);
@@ -125,10 +128,10 @@ public class FolderService {
 		}
 
 		String newHash = sha256(files.size() + ":" + totalSize);
-		String path = dirPath.toString();
+		String relativePath = root.relativize(dirPath).toString();
 		int level = (int) root.relativize(dirPath).getNameCount();
 
-		Optional<Folder> existing = folderRepository.findByPath(path);
+		Optional<Folder> existing = folderRepository.findByLibraryFolderAndPath(libraryFolder, relativePath);
 		if (existing.isPresent()) {
 			Folder folder = existing.get();
 			if (newHash.equals(folder.getHash()) && folder.isFinished()) {
@@ -142,19 +145,20 @@ public class FolderService {
 			return true;
 		}
 
-		folderRepository.save(new Folder(path, newHash, level, LocalDateTime.now()));
+		folderRepository.save(new Folder(libraryFolder, relativePath, newHash, level, LocalDateTime.now()));
 		return true;
 	}
 
 	/**
-	 * Marks the folder at the given path as fully indexed by setting its
+	 * Marks the folder at the given relative path as fully indexed by setting its
 	 * {@code finished} flag to {@code true}.
 	 * Has no effect if no folder record exists for that path.
 	 *
-	 * @param path the full absolute path of the folder to mark as finished
+	 * @param libraryFolder the library folder the folder belongs to
+	 * @param relativePath  the path of the folder relative to the library folder root
 	 */
-	public void markFinished(String path) {
-		folderRepository.findByPath(path).ifPresent(folder -> {
+	public void markFinished(LibraryFolder libraryFolder, String relativePath) {
+		folderRepository.findByLibraryFolderAndPath(libraryFolder, relativePath).ifPresent(folder -> {
 			folder.setFinished(true);
 			folderRepository.save(folder);
 		});

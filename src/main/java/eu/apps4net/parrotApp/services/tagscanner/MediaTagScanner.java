@@ -4,7 +4,6 @@ import eu.apps4net.parrotApp.models.MediaFile;
 import eu.apps4net.parrotApp.models.MediaKind;
 
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.List;
 import java.util.function.Function;
 
@@ -53,8 +52,9 @@ public interface MediaTagScanner {
 	 */
 	default void scanTagsBatch(List<MediaFile> files, Function<MediaFile, Path> rootResolver) {
 		for (MediaFile mf : files) {
-			Path filePath = Paths.get(mf.getPath()).resolve(mf.getFilename());
-			scanTags(mf, filePath, rootResolver.apply(mf));
+			Path libraryRoot = rootResolver.apply(mf);
+			Path filePath = libraryRoot.resolve(mf.getPath()).resolve(mf.getFilename());
+			scanTags(mf, filePath, libraryRoot);
 		}
 	}
 }

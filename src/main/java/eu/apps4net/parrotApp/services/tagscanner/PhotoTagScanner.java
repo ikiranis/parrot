@@ -86,8 +86,9 @@ public class PhotoTagScanner implements MediaTagScanner {
 	public void scanTagsBatch(List<MediaFile> files, Function<MediaFile, Path> rootResolver) {
 		List<PhotoTag> tags = new ArrayList<>(files.size());
 		for (MediaFile mf : files) {
-			Path filePath = Paths.get(mf.getPath()).resolve(mf.getFilename());
-			tags.add(buildPhotoTag(mf, filePath, rootResolver.apply(mf)));
+			Path libraryRoot = rootResolver.apply(mf);
+			Path filePath = libraryRoot.resolve(mf.getPath()).resolve(mf.getFilename());
+			tags.add(buildPhotoTag(mf, filePath, libraryRoot));
 		}
 		if (tags.isEmpty()) return;
 

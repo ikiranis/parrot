@@ -7,6 +7,7 @@ import eu.apps4net.parrotApp.models.LibraryFolder;
 import eu.apps4net.parrotApp.repositories.LibraryFolderRepository;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Service layer for {@link LibraryFolder} entities.
@@ -69,5 +70,20 @@ public class LibraryFolderService {
 			throw new NotFoundException("Library folder not found: " + id);
 		}
 		libraryFolderRepository.deleteById(id);
+	}
+
+	/**
+	 * Finds the library folder whose path is a prefix of the given absolute path.
+	 * Returns the longest-matching library folder when multiple folders are configured
+	 * as nested paths.
+	 *
+	 * @param absolutePath the absolute path to match against configured library folders
+	 * @return an {@link Optional} containing the best-matching library folder, or empty
+	 *         if no configured library folder is a prefix of the given path
+	 */
+	public Optional<LibraryFolder> findMatchingForPath(String absolutePath) {
+		return libraryFolderRepository.findAll().stream()
+				.filter(lf -> absolutePath.equals(lf.getPath()) || absolutePath.startsWith(lf.getPath() + "/"))
+				.max((a, b) -> Integer.compare(a.getPath().length(), b.getPath().length()));
 	}
 }

@@ -6,6 +6,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.stereotype.Repository;
 
+import eu.apps4net.parrotApp.models.LibraryFolder;
 import eu.apps4net.parrotApp.models.MediaFile;
 import eu.apps4net.parrotApp.models.MediaKind;
 
@@ -19,34 +20,35 @@ import java.util.Optional;
 public interface MediaFileRepository extends JpaRepository<MediaFile, Long> {
 
 	/**
-	 * Finds a media file by its directory path and filename.
+	 * Finds a media file by its library folder, relative directory path, and filename.
 	 *
-	 * @param path     the directory path
-	 * @param filename the file name
+	 * @param libraryFolder the library folder the file belongs to
+	 * @param path          the directory path relative to the library folder root
+	 * @param filename      the file name
 	 * @return an {@link Optional} containing the matching file, or empty if not found
 	 */
-	Optional<MediaFile> findByPathAndFilename(String path, String filename);
+	Optional<MediaFile> findByLibraryFolderAndPathAndFilename(LibraryFolder libraryFolder, String path, String filename);
 
 	/**
-	 * Returns all media files in the given directory path.
-	 * Used during batch scanning to check which filenames are already indexed
-	 * before bulk-inserting new records.
+	 * Returns all media files in the given library folder and relative directory path.
 	 *
-	 * @param path the directory path to query
+	 * @param libraryFolder the library folder the files belong to
+	 * @param path          the directory path relative to the library folder root
 	 * @return list of {@link MediaFile} records for that directory
 	 */
-	List<MediaFile> findByPath(String path);
+	List<MediaFile> findByLibraryFolderAndPath(LibraryFolder libraryFolder, String path);
 
 	/**
-	 * Returns only the filenames of media files in the given directory path.
-	 * Prefer this over {@link #findByPath} when only filenames are needed,
+	 * Returns only the filenames of media files in the given library folder and relative directory path.
+	 * Prefer this over {@link #findByLibraryFolderAndPath} when only filenames are needed,
 	 * to avoid loading full entities into the persistence context.
 	 *
-	 * @param path the directory path to query
+	 * @param libraryFolder the library folder the files belong to
+	 * @param path          the directory path relative to the library folder root
 	 * @return list of filenames in that directory
 	 */
-	@Query("SELECT mf.filename FROM MediaFile mf WHERE mf.path = ?1")
-	List<String> findFilenamesByPath(String path);
+	@Query("SELECT mf.filename FROM MediaFile mf WHERE mf.libraryFolder = ?1 AND mf.path = ?2")
+	List<String> findFilenamesByLibraryFolderAndPath(LibraryFolder libraryFolder, String path);
 
 	/**
 	 * Returns a paginated list of media files of the given kind.

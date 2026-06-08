@@ -2,11 +2,13 @@ package eu.apps4net.parrotApp.models;
 
 import jakarta.persistence.*;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 
 /**
  * JPA entity representing a media file entry in the library.
- * Stores the file system path, filename, optional hash, and media kind.
+ * Stores the directory path relative to the {@link LibraryFolder} root, filename,
+ * optional hash, and media kind.
  */
 @Entity(name = "MediaFile")
 @Table(name = "media_file")
@@ -17,8 +19,13 @@ public class MediaFile {
 	@GeneratedValue(strategy = GenerationType.IDENTITY)
 	private Long id;
 
-	/** Absolute directory path of the file on the server. */
-	@NotBlank
+	/** Library folder this file belongs to. */
+	@ManyToOne(fetch = FetchType.EAGER)
+	@JoinColumn(name = "library_folder_id", nullable = false)
+	private LibraryFolder libraryFolder;
+
+	/** Directory path of the file relative to the library folder root. Empty string means the root directory. */
+	@NotNull
 	@Size(max = 1024)
 	@Column(name = "path", nullable = false, length = 1024)
 	private String path;
@@ -46,12 +53,14 @@ public class MediaFile {
 	/**
 	 * Constructs a fully-initialised {@code MediaFile}.
 	 *
-	 * @param path     the directory path containing the file
-	 * @param filename the file name
-	 * @param hash     optional content hash, may be {@code null}
-	 * @param kind     the media kind
+	 * @param libraryFolder the library folder this file belongs to
+	 * @param path          the directory path relative to the library folder root; empty string for the root
+	 * @param filename      the file name
+	 * @param hash          optional content hash, may be {@code null}
+	 * @param kind          the media kind
 	 */
-	public MediaFile(String path, String filename, String hash, MediaKind kind) {
+	public MediaFile(LibraryFolder libraryFolder, String path, String filename, String hash, MediaKind kind) {
+		this.libraryFolder = libraryFolder;
 		this.path = path;
 		this.filename = filename;
 		this.hash = hash;
@@ -77,18 +86,37 @@ public class MediaFile {
 	}
 
 	/**
-	 * Returns the directory path.
+	 * Returns the library folder this file belongs to.
 	 *
-	 * @return the path
+	 * @return the library folder
+	 */
+	public LibraryFolder getLibraryFolder() {
+		return libraryFolder;
+	}
+
+	/**
+	 * Sets the library folder this file belongs to.
+	 *
+	 * @param libraryFolder the library folder to set
+	 */
+	public void setLibraryFolder(LibraryFolder libraryFolder) {
+		this.libraryFolder = libraryFolder;
+	}
+
+	/**
+	 * Returns the directory path relative to the library folder root.
+	 * An empty string means the file resides directly in the library root.
+	 *
+	 * @return the relative directory path
 	 */
 	public String getPath() {
 		return path;
 	}
 
 	/**
-	 * Sets the directory path.
+	 * Sets the directory path relative to the library folder root.
 	 *
-	 * @param path the path to set
+	 * @param path the relative path to set
 	 */
 	public void setPath(String path) {
 		this.path = path;

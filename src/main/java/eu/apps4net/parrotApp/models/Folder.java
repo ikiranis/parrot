@@ -1,20 +1,22 @@
 package eu.apps4net.parrotApp.models;
 
 import jakarta.persistence.*;
-import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 
 import java.time.LocalDateTime;
 
 /**
  * JPA entity representing a scanned folder in the media library.
- * Tracks the folder path, a content hash derived from file count and total
- * size, the nesting level relative to the library root, a flag indicating
- * whether all files have been fully indexed, and the last time a change was
- * detected.
+ * Tracks the folder path relative to its {@link LibraryFolder} root, a content hash
+ * derived from file count and total size, the nesting level relative to the library
+ * root, a flag indicating whether all files have been fully indexed, and the last
+ * time a change was detected.
  */
 @Entity(name = "Folder")
-@Table(name = "folder")
+@Table(name = "folder",
+		uniqueConstraints = @UniqueConstraint(name = "uk_folder_library_path",
+				columnNames = {"library_folder_id", "path"}))
 public class Folder {
 
 	/** Auto-generated primary key. */
@@ -22,10 +24,15 @@ public class Folder {
 	@GeneratedValue(strategy = GenerationType.IDENTITY)
 	private Long id;
 
-	/** Full absolute path of the folder on the server. */
-	@NotBlank
+	/** Library folder this folder belongs to. */
+	@ManyToOne(fetch = FetchType.EAGER)
+	@JoinColumn(name = "library_folder_id", nullable = false)
+	private LibraryFolder libraryFolder;
+
+	/** Path of the folder relative to the library folder root. Empty string means the root itself. */
+	@NotNull
 	@Size(max = 512)
-	@Column(name = "path", nullable = false, unique = true)
+	@Column(name = "path", nullable = false)
 	private String path;
 
 	/**
@@ -64,12 +71,14 @@ public class Folder {
 	 * {@code finished} is always {@code false} on construction and must be set
 	 * explicitly once all files in the folder have been indexed.
 	 *
-	 * @param path       the full absolute path of the folder
-	 * @param hash       the content hash, may be {@code null}
-	 * @param level      the nesting level relative to the library root (0 = root)
-	 * @param lastUpdate the timestamp of the last detected change
+	 * @param libraryFolder the library folder this folder belongs to
+	 * @param path          the path relative to the library folder root; empty string for the root itself
+	 * @param hash          the content hash, may be {@code null}
+	 * @param level         the nesting level relative to the library root (0 = root)
+	 * @param lastUpdate    the timestamp of the last detected change
 	 */
-	public Folder(String path, String hash, int level, LocalDateTime lastUpdate) {
+	public Folder(LibraryFolder libraryFolder, String path, String hash, int level, LocalDateTime lastUpdate) {
+		this.libraryFolder = libraryFolder;
 		this.path = path;
 		this.hash = hash;
 		this.level = level;
@@ -95,18 +104,37 @@ public class Folder {
 	}
 
 	/**
-	 * Returns the full path of the folder.
+	 * Returns the library folder this folder belongs to.
 	 *
-	 * @return the path
+	 * @return the library folder
+	 */
+	public LibraryFolder getLibraryFolder() {
+		return libraryFolder;
+	}
+
+	/**
+	 * Sets the library folder this folder belongs to.
+	 *
+	 * @param libraryFolder the library folder to set
+	 */
+	public void setLibraryFolder(LibraryFolder libraryFolder) {
+		this.libraryFolder = libraryFolder;
+	}
+
+	/**
+	 * Returns the path relative to the library folder root.
+	 * An empty string means this folder is the library root itself.
+	 *
+	 * @return the relative path
 	 */
 	public String getPath() {
 		return path;
 	}
 
 	/**
-	 * Sets the full path of the folder.
+	 * Sets the path relative to the library folder root.
 	 *
-	 * @param path the path to set
+	 * @param path the relative path to set
 	 */
 	public void setPath(String path) {
 		this.path = path;
