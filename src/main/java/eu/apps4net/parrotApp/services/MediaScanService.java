@@ -195,11 +195,14 @@ public class MediaScanService {
 			// Phase 2: scan all leaf directories for new media files
 			state.setPhase(ScanPhase.SCANNING);
 			List<FileScanEntry> allEntries = scanAllLeafDirs(allLeafDirs, state);
+			allLeafDirs.clear();
 			state.setTotalFiles(allEntries.size());
 
 			// Phase 3: read metadata tags for all newly added files
 			state.setPhase(ScanPhase.TAGGING);
 			runTagScanners(allEntries, state);
+			allEntries.clear();
+			System.gc();
 
 			state.complete("Scan complete. Added: " + state.getAdded() +
 					", Skipped: " + state.getSkipped() +
@@ -368,7 +371,10 @@ public class MediaScanService {
 		}
 
 		scanLeafDirectories(leafDirs, ctx);
+		leafDirs.clear();
 		runTagScanners(ctx);
+		ctx.savedEntries.clear();
+		System.gc();
 
 		return new ScanResult(ctx.added.get(), ctx.skipped.get(), ctx.errors.get(),
 				ctx.foldersScanned.get(), ctx.foldersSkipped.get(),
