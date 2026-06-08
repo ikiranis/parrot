@@ -1,6 +1,7 @@
 package eu.apps4net.parrotApp.services;
 
 import org.springframework.data.domain.PageRequest;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
 import eu.apps4net.parrotApp.models.LibraryFolder;
@@ -85,6 +86,12 @@ public class MediaScanService {
 	private final LibraryFolderService libraryFolderService;
 
 	/**
+	 * JDBC template used for bulk inserts in Phase 2, bypassing the JPA persistence
+	 * context so that inserted rows never accumulate in Hibernate's first-level cache.
+	 */
+	private final JdbcTemplate jdbcTemplate;
+
+	/**
 	 * Map of {@link MediaKind} to its corresponding {@link MediaTagScanner},
 	 * built from all {@link MediaTagScanner} beans present in the application context.
 	 */
@@ -99,17 +106,20 @@ public class MediaScanService {
 	 * @param folderService         service for folder change detection and persistence
 	 * @param settingService        service for reading application settings
 	 * @param libraryFolderService  service for retrieving configured library folder paths
+	 * @param jdbcTemplate          JDBC template for bulk inserts
 	 * @param scannerList           all registered {@link MediaTagScanner} implementations
 	 */
 	public MediaScanService(MediaFileRepository mediaFileRepository,
 							FolderService folderService,
 							SettingService settingService,
 							LibraryFolderService libraryFolderService,
+							JdbcTemplate jdbcTemplate,
 							List<MediaTagScanner> scannerList) {
 		this.mediaFileRepository = mediaFileRepository;
 		this.folderService = folderService;
 		this.settingService = settingService;
 		this.libraryFolderService = libraryFolderService;
+		this.jdbcTemplate = jdbcTemplate;
 		this.tagScanners = new EnumMap<>(MediaKind.class);
 		for (MediaTagScanner scanner : scannerList) {
 			tagScanners.put(scanner.getSupportedKind(), scanner);
@@ -202,6 +212,8 @@ public class MediaScanService {
 			state.setPhase(ScanPhase.SCANNING);
 			scanAllLeafDirs(allLeafDirs, state);
 			allLeafDirs.clear();
+			allLeafDirs = null;
+			System.gc();
 
 			// Phase 3: read metadata tags for all MediaFile records without tags
 			state.setPhase(ScanPhase.TAGGING);
@@ -589,8 +601,7 @@ public class MediaScanService {
 	private void scanDirectoryFiles(List<Path> files, Path leafDir, ScanContext ctx) {
 		String parentPath = leafDir.toString();
 
-		Set<String> existing = new HashSet<>(mediaFileRepository.findByPath(parentPath)
-				.stream().map(MediaFile::getFilename).collect(Collectors.toSet()));
+		Set<String> existing = new HashSet<>(mediaFileRepository.findFilenamesByPath(parentPath));
 
 		List<Path> newPaths = new ArrayList<>();
 		List<MediaFile> toSave = new ArrayList<>();
@@ -622,10 +633,9 @@ public class MediaScanService {
 
 	/**
 	 * Phase 2 (background) — processes all regular files from a single leaf directory
-	 * as one batch: fetches existing filenames with one query, builds new
-	 * {@link MediaFile} objects for unseen files, and persists them all with one
-	 * {@code saveAll()} call.  Phase 3 re-queries the DB for untagged records, so no
-	 * entry tracking is needed here.
+	 * as one batch: fetches existing filenames with one projection query, then inserts
+	 * new rows via JDBC so that no entities are loaded into the JPA persistence context.
+	 * Phase 3 re-queries the DB for untagged records, so no entry tracking is needed here.
 	 *
 	 * @param files   regular files in the directory
 	 * @param leafDir the directory being scanned
@@ -634,10 +644,9 @@ public class MediaScanService {
 	private void saveDirectoryFiles(List<Path> files, Path leafDir, ScanJobState state) {
 		String parentPath = leafDir.toString();
 
-		Set<String> existing = new HashSet<>(mediaFileRepository.findByPath(parentPath)
-				.stream().map(MediaFile::getFilename).collect(Collectors.toSet()));
+		Set<String> existing = new HashSet<>(mediaFileRepository.findFilenamesByPath(parentPath));
 
-		List<MediaFile> toSave = new ArrayList<>();
+		List<Object[]> rows = new ArrayList<>();
 		int skipped = 0;
 
 		for (Path filePath : files) {
@@ -648,17 +657,20 @@ public class MediaScanService {
 				skipped++;
 				continue;
 			}
-			toSave.add(new MediaFile(parentPath, filename, null, kindOpt.get()));
+			rows.add(new Object[]{parentPath, filename, null, kindOpt.get().name()});
 		}
 
 		if (skipped > 0) state.addSkipped(skipped);
-		if (toSave.isEmpty()) return;
+		if (rows.isEmpty()) return;
 
 		try {
-			mediaFileRepository.saveAll(toSave);
-			state.addAdded(toSave.size());
+			jdbcTemplate.batchUpdate(
+					"INSERT INTO media_file (path, filename, hash, kind) VALUES (?, ?, ?, ?)",
+					rows
+			);
+			state.addAdded(rows.size());
 		} catch (Exception e) {
-			state.addErrors(toSave.size());
+			state.addErrors(rows.size());
 			state.addErrorLog("Batch save failed for: " + parentPath + " — " + e.getMessage());
 		}
 	}

@@ -38,6 +38,17 @@ public interface MediaFileRepository extends JpaRepository<MediaFile, Long> {
 	List<MediaFile> findByPath(String path);
 
 	/**
+	 * Returns only the filenames of media files in the given directory path.
+	 * Prefer this over {@link #findByPath} when only filenames are needed,
+	 * to avoid loading full entities into the persistence context.
+	 *
+	 * @param path the directory path to query
+	 * @return list of filenames in that directory
+	 */
+	@Query("SELECT mf.filename FROM MediaFile mf WHERE mf.path = ?1")
+	List<String> findFilenamesByPath(String path);
+
+	/**
 	 * Returns a paginated list of media files of the given kind.
 	 *
 	 * @param kind     the media kind to filter by

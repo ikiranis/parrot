@@ -1,5 +1,7 @@
 package eu.apps4net.parrotApp.services.tagscanner;
 
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.lang.NonNull;
 import org.springframework.stereotype.Component;
 
 import eu.apps4net.parrotApp.models.MediaFile;
@@ -8,12 +10,17 @@ import eu.apps4net.parrotApp.models.PhotoTag;
 import eu.apps4net.parrotApp.repositories.PhotoTagRepository;
 
 import javax.imageio.ImageIO;
-import java.awt.image.BufferedImage;
+import javax.imageio.ImageReader;
+import javax.imageio.stream.ImageInputStream;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.sql.Timestamp;
+import java.sql.Types;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
 import java.util.function.Function;
 
@@ -26,16 +33,21 @@ import java.util.function.Function;
 @Component
 public class PhotoTagScanner implements MediaTagScanner {
 
-	/** Repository for persisting photo tag records. */
+	/** Repository for persisting photo tag records (used by single-file scan path). */
 	private final PhotoTagRepository photoTagRepository;
+
+	/** JDBC template for bulk inserts in batch scan path, bypassing the JPA persistence context. */
+	private final JdbcTemplate jdbcTemplate;
 
 	/**
 	 * Constructs a new {@code PhotoTagScanner}.
 	 *
 	 * @param photoTagRepository repository for photo tag persistence
+	 * @param jdbcTemplate       JDBC template for batch inserts
 	 */
-	public PhotoTagScanner(PhotoTagRepository photoTagRepository) {
+	public PhotoTagScanner(PhotoTagRepository photoTagRepository, JdbcTemplate jdbcTemplate) {
 		this.photoTagRepository = photoTagRepository;
+		this.jdbcTemplate = jdbcTemplate;
 	}
 
 	/**
@@ -62,8 +74,10 @@ public class PhotoTagScanner implements MediaTagScanner {
 	}
 
 	/**
-	 * Builds and persists {@link PhotoTag} records for a batch of image files in a single
-	 * {@code saveAll()} call, reducing per-file transaction overhead to one per batch.
+	 * Builds {@link PhotoTag} records for a batch of image files then inserts them via
+	 * JDBC in a single batch statement, bypassing the JPA persistence context so that
+	 * neither the tags nor their associated {@link MediaFile} entities accumulate in
+	 * Hibernate's first-level cache.
 	 *
 	 * @param files        the already-persisted media file records to tag
 	 * @param rootResolver function that maps each {@link MediaFile} to the library root path
@@ -75,9 +89,38 @@ public class PhotoTagScanner implements MediaTagScanner {
 			Path filePath = Paths.get(mf.getPath()).resolve(mf.getFilename());
 			tags.add(buildPhotoTag(mf, filePath, rootResolver.apply(mf)));
 		}
-		if (!tags.isEmpty()) {
-			photoTagRepository.saveAll(tags);
-		}
+		if (tags.isEmpty()) return;
+
+		Timestamp now = Timestamp.valueOf(LocalDateTime.now());
+		jdbcTemplate.batchUpdate(
+				"INSERT INTO photo_tag (media_file_id, name, album, filesize, mime_type, width, height," +
+				" view_count, date_created, date_updated) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)",
+				tags,
+				tags.size(),
+				(ps, tag) -> {
+					ps.setLong(1, tag.getMediaFile().getId());
+					ps.setString(2, tag.getName());
+					ps.setString(3, tag.getAlbum());
+					if (tag.getFilesize() != null) {
+						ps.setLong(4, tag.getFilesize());
+					} else {
+						ps.setNull(4, Types.BIGINT);
+					}
+					ps.setString(5, tag.getMimeType());
+					if (tag.getWidth() != null) {
+						ps.setInt(6, tag.getWidth());
+					} else {
+						ps.setNull(6, Types.INTEGER);
+					}
+					if (tag.getHeight() != null) {
+						ps.setInt(7, tag.getHeight());
+					} else {
+						ps.setNull(7, Types.INTEGER);
+					}
+					ps.setTimestamp(8, now);
+					ps.setTimestamp(9, now);
+				}
+		);
 	}
 
 	/**
@@ -88,6 +131,7 @@ public class PhotoTagScanner implements MediaTagScanner {
 	 * @param rootPath  the root scan folder
 	 * @return a fully populated, unsaved {@link PhotoTag}
 	 */
+	@NonNull
 	private PhotoTag buildPhotoTag(MediaFile mediaFile, Path filePath, Path rootPath) {
 		File file = filePath.toFile();
 		String filename = filePath.getFileName().toString();
@@ -103,19 +147,26 @@ public class PhotoTagScanner implements MediaTagScanner {
 	}
 
 	/**
-	 * Reads the pixel width and height of an image file and sets them on the given
-	 * {@link PhotoTag}. Silently ignores any {@link IOException} as dimensions are
-	 * considered optional metadata.
+	 * Reads the pixel width and height from the image file header without decoding
+	 * any pixel data. Uses an {@link ImageReader} positioned on an
+	 * {@link ImageInputStream} so that only the format-specific header bytes are
+	 * consumed, keeping memory usage near zero regardless of image resolution.
 	 *
-	 * @param file     the image file to read
+	 * @param file     the image file to inspect
 	 * @param photoTag the tag whose width and height will be populated
 	 */
 	private void readImageDimensions(File file, PhotoTag photoTag) {
-		try {
-			BufferedImage image = ImageIO.read(file);
-			if (image != null) {
-				photoTag.setWidth(image.getWidth());
-				photoTag.setHeight(image.getHeight());
+		try (ImageInputStream iis = ImageIO.createImageInputStream(file)) {
+			if (iis == null) return;
+			Iterator<ImageReader> readers = ImageIO.getImageReaders(iis);
+			if (!readers.hasNext()) return;
+			ImageReader reader = readers.next();
+			try {
+				reader.setInput(iis, true, true);
+				photoTag.setWidth(reader.getWidth(0));
+				photoTag.setHeight(reader.getHeight(0));
+			} finally {
+				reader.dispose();
 			}
 		} catch (IOException ignored) {
 			// Dimensions are optional — skip on failure
