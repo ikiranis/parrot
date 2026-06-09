@@ -10,7 +10,7 @@
     </parent>
     <groupId>eu.apps4net</groupId>
     <artifactId>ParrotApp</artifactId>
-    <version>0.1.4</version>
+    <version>0.1.5</version>
     <name>ParrotApp</name>
     <description>Generic structure for a Java App</description>
     <url/>
@@ -73,6 +73,12 @@
             <groupId>org.apache.poi</groupId>
             <artifactId>poi-ooxml</artifactId>
             <version>5.0.0</version>
+        </dependency>
+
+        <dependency>
+            <groupId>com.drewnoakes</groupId>
+            <artifactId>metadata-extractor</artifactId>
+            <version>2.19.0</version>
         </dependency>
     </dependencies>
 

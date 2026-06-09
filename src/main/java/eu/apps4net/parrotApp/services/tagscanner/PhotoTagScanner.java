@@ -1,5 +1,8 @@
 package eu.apps4net.parrotApp.services.tagscanner;
 
+import com.drew.imaging.ImageMetadataReader;
+import com.drew.metadata.Metadata;
+import com.drew.metadata.exif.ExifSubIFDDirectory;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.lang.NonNull;
 import org.springframework.stereotype.Component;
@@ -15,13 +18,15 @@ import javax.imageio.stream.ImageInputStream;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.sql.Timestamp;
 import java.sql.Types;
+import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
+import java.util.TimeZone;
 import java.util.function.Function;
 
 /**
@@ -118,7 +123,7 @@ public class PhotoTagScanner implements MediaTagScanner {
 					} else {
 						ps.setNull(7, Types.INTEGER);
 					}
-					ps.setTimestamp(8, now);
+					ps.setTimestamp(8, tag.getDateCreated() != null ? Timestamp.valueOf(tag.getDateCreated()) : now);
 					ps.setTimestamp(9, now);
 				}
 		);
@@ -144,6 +149,7 @@ public class PhotoTagScanner implements MediaTagScanner {
 		photoTag.setFilesize(file.length());
 		photoTag.setMimeType(resolveMimeType(filename));
 		readImageDimensions(file, photoTag);
+		photoTag.setDateCreated(readPhotoDate(file));
 		return photoTag;
 	}
 
@@ -172,6 +178,29 @@ public class PhotoTagScanner implements MediaTagScanner {
 		} catch (IOException ignored) {
 			// Dimensions are optional — skip on failure
 		}
+	}
+
+	/**
+	 * Reads the creation date of the photo. Tries EXIF {@code DateTimeOriginal} first;
+	 * falls back to the file's last-modified timestamp when EXIF is absent or unreadable.
+	 *
+	 * @param file the image file to inspect
+	 * @return the photo's date, never {@code null}
+	 */
+	private LocalDateTime readPhotoDate(File file) {
+		try {
+			Metadata metadata = ImageMetadataReader.readMetadata(file);
+			ExifSubIFDDirectory exif = metadata.getFirstDirectoryOfType(ExifSubIFDDirectory.class);
+			if (exif != null) {
+				java.util.Date date = exif.getDate(ExifSubIFDDirectory.TAG_DATETIME_ORIGINAL, TimeZone.getDefault());
+				if (date != null) {
+					return date.toInstant().atZone(ZoneId.systemDefault()).toLocalDateTime();
+				}
+			}
+		} catch (Exception ignored) {
+			// Fall through to file date
+		}
+		return LocalDateTime.ofInstant(Instant.ofEpochMilli(file.lastModified()), ZoneId.systemDefault());
 	}
 
 	/**

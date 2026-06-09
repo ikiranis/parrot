@@ -106,7 +106,7 @@ public class PhotoTag {
 	 */
 	@PrePersist
 	protected void onCreate() {
-		dateCreated = LocalDateTime.now();
+		if (dateCreated == null) dateCreated = LocalDateTime.now();
 		dateUpdated = LocalDateTime.now();
 	}
 
