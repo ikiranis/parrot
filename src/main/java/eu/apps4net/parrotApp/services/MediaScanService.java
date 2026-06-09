@@ -99,6 +99,12 @@ public class MediaScanService {
 	private final JdbcTemplate jdbcTemplate;
 
 	/**
+	 * Serialises concurrent INSERT batches so that Derby does not time out on lock
+	 * acquisition when multiple scanner threads flush rows simultaneously.
+	 */
+	private final Object insertLock = new Object();
+
+	/**
 	 * Map of {@link MediaKind} to its corresponding {@link MediaTagScanner},
 	 * built from all {@link MediaTagScanner} beans present in the application context.
 	 */
@@ -726,10 +732,12 @@ public class MediaScanService {
 		if (rows.isEmpty()) return;
 
 		try {
-			jdbcTemplate.batchUpdate(
-					"INSERT INTO media_file (library_folder_id, path, filename, hash, kind) VALUES (?, ?, ?, ?, ?)",
-					rows
-			);
+			synchronized (insertLock) {
+				jdbcTemplate.batchUpdate(
+						"INSERT INTO media_file (library_folder_id, path, filename, hash, kind) VALUES (?, ?, ?, ?, ?)",
+						rows
+				);
+			}
 			state.addAdded(rows.size());
 		} catch (Exception e) {
 			state.addErrors(rows.size());

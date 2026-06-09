@@ -1,5 +1,6 @@
 package eu.apps4net.parrotApp.models;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -45,6 +46,14 @@ public class MediaFile {
 	@Enumerated(EnumType.STRING)
 	@Column(name = "kind")
 	private MediaKind kind;
+
+	/**
+	 * Primary key of the linked thumbnail, readable without loading the lazy entity.
+	 * Mirrors the {@code thumbnail_id} FK column; managed exclusively by the ORM via
+	 * {@link #thumbnail} — never set this field directly.
+	 */
+	@Column(name = "thumbnail_id", insertable = false, updatable = false)
+	private Long thumbnailId;
 
 	/** Optional thumbnail for this media file. Null when no thumbnail has been generated yet. */
 	@OneToOne(fetch = FetchType.LAZY, cascade = CascadeType.ALL, orphanRemoval = true)
@@ -182,10 +191,21 @@ public class MediaFile {
 	}
 
 	/**
+	 * Returns the primary key of the linked thumbnail without triggering a lazy load,
+	 * or {@code null} if no thumbnail has been generated yet.
+	 *
+	 * @return the thumbnail id, or {@code null}
+	 */
+	public Long getThumbnailId() {
+		return thumbnailId;
+	}
+
+	/**
 	 * Returns the thumbnail for this media file, or {@code null} if none has been generated yet.
 	 *
 	 * @return the thumbnail, or {@code null}
 	 */
+	@JsonIgnore
 	public Thumbnail getThumbnail() {
 		return thumbnail;
 	}

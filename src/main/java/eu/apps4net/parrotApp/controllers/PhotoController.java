@@ -19,12 +19,15 @@ import eu.apps4net.parrotApp.models.PhotoDetailDTO;
 import eu.apps4net.parrotApp.models.PhotoTag;
 import eu.apps4net.parrotApp.models.ScanResult;
 import eu.apps4net.parrotApp.models.TagExportItemDTO;
+import eu.apps4net.parrotApp.models.Thumbnail;
 import eu.apps4net.parrotApp.repositories.MediaFileRepository;
 import eu.apps4net.parrotApp.repositories.PhotoTagRepository;
 import eu.apps4net.parrotApp.services.LibraryFolderService;
 import eu.apps4net.parrotApp.services.MediaScanService;
+import eu.apps4net.parrotApp.services.ThumbnailService;
 
 import java.io.File;
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -52,6 +55,9 @@ public class PhotoController {
 	/** Service for looking up library folders, used to resolve full paths during tag import/export. */
 	private final LibraryFolderService libraryFolderService;
 
+	/** Service for generating and retrieving thumbnails. */
+	private final ThumbnailService thumbnailService;
+
 	/**
 	 * Constructs a new {@code PhotoController}.
 	 *
@@ -59,15 +65,18 @@ public class PhotoController {
 	 * @param mediaFileRepository the media file repository
 	 * @param photoTagRepository  the photo tag repository
 	 * @param libraryFolderService the library folder service
+	 * @param thumbnailService    the thumbnail service
 	 */
 	public PhotoController(MediaScanService mediaScanService,
 						   MediaFileRepository mediaFileRepository,
 						   PhotoTagRepository photoTagRepository,
-						   LibraryFolderService libraryFolderService) {
+						   LibraryFolderService libraryFolderService,
+						   ThumbnailService thumbnailService) {
 		this.mediaScanService = mediaScanService;
 		this.mediaFileRepository = mediaFileRepository;
 		this.photoTagRepository = photoTagRepository;
 		this.libraryFolderService = libraryFolderService;
+		this.thumbnailService = thumbnailService;
 	}
 
 	/**
@@ -236,6 +245,43 @@ public class PhotoController {
 		tag.setViewCount(current + 1);
 		photoTagRepository.save(tag);
 		return PhotoDetailDTO.from(mediaFile, Optional.of(tag));
+	}
+
+	/**
+	 * Generates a thumbnail for the specified photo and returns its id.
+	 * If the photo already has a thumbnail, returns the existing id without regenerating.
+	 * The physical image file must exist on disk; a 404 is returned if it does not.
+	 *
+	 * @param id the primary key of the media file
+	 * @return a map with key {@code thumbnailId} set to the thumbnail primary key
+	 * @throws NotFoundException        if no media file with the given id exists, or the file is not on disk
+	 * @throws ProcessingErrorException if thumbnail generation fails
+	 */
+	@PostMapping("{id}/thumbnail")
+	@Transactional
+	public Map<String, Long> generateThumbnail(@PathVariable Long id) {
+		MediaFile mediaFile = mediaFileRepository.findById(id)
+				.orElseThrow(() -> new NotFoundException("Photo not found: " + id));
+
+		if (mediaFile.getThumbnailId() != null) {
+			return Map.of("thumbnailId", mediaFile.getThumbnailId());
+		}
+
+		Path sourceImage = Paths.get(mediaFile.getLibraryFolder().getPath())
+				.resolve(mediaFile.getPath())
+				.resolve(mediaFile.getFilename());
+
+		if (!Files.isRegularFile(sourceImage)) {
+			throw new NotFoundException("Image file not found on disk: " + sourceImage);
+		}
+
+		try {
+			Thumbnail thumbnail = thumbnailService.generatePhotoThumbnail(id, sourceImage);
+			mediaFile.setThumbnail(thumbnail);
+			return Map.of("thumbnailId", thumbnail.getId());
+		} catch (IOException e) {
+			throw new ProcessingErrorException("Thumbnail generation failed: " + e.getMessage());
+		}
 	}
 
 	/**

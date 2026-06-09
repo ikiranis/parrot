@@ -115,6 +115,18 @@ export const getPhotoImageUrl = (id: number): string =>
     config.defaultServer() + `/api/photos/${id}/image`
 
 /**
+ * Generates a thumbnail for the specified photo and returns its id.
+ * If a thumbnail already exists for the photo, returns the existing id.
+ *
+ * @param id the primary key of the media file
+ * @returns the thumbnail id
+ */
+export const createPhotoThumbnail = async (id: number): Promise<number> => {
+    const response = await axios.post(config.defaultServer() + `/api/photos/${id}/thumbnail`)
+    return response.data.thumbnailId
+}
+
+/**
  * Sets the rating for the specified photo (1–5).
  *
  * @param id     the primary key of the media file

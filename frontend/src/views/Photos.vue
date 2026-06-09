@@ -2,7 +2,7 @@
 import { ref, Ref, onMounted } from "vue"
 import { language } from "@/functions/languageStore.ts"
 import { errorStore } from "@/components/error/errorStore.ts"
-import { scanLibraryFolders, clearLibrary } from "@/api/photo.ts"
+import { scanLibraryFolders, clearLibrary, createPhotoThumbnail } from "@/api/photo.ts"
 import { getFoldersByLevel, getFolderChildren, getFolderPhotos, getThumbnailUrl } from "@/api/folder.ts"
 import { ScanResult, MediaFile, Folder } from "@/types"
 import Error from "@/components/error/Error.vue"
@@ -24,6 +24,9 @@ const viewMode: Ref<ViewMode> = ref("folders")
 const displayFolders: Ref<Folder[]> = ref([])
 const displayPhotos: Ref<MediaFile[]> = ref([])
 
+/** Set of photo ids currently awaiting thumbnail generation. */
+const loadingThumbnails: Ref<Set<number>> = ref(new Set())
+
 onMounted(() => {
 	loadRoot()
 })
@@ -40,6 +43,7 @@ const loadRoot = async () => {
 	folderStack.value = []
 	displayFolders.value = []
 	displayPhotos.value = []
+	loadingThumbnails.value = new Set()
 
 	await getFoldersByLevel(1)
 		.then((data: Folder[]) => {
@@ -71,6 +75,7 @@ const navigateInto = async (folder: Folder) => {
 					.then((photos: MediaFile[]) => {
 						displayPhotos.value = photos
 						viewMode.value = "photos"
+						generateMissingThumbnails(photos)
 					})
 					.catch(handleError)
 			}
@@ -93,6 +98,7 @@ const navigateTo = async (stackIndex: number) => {
 	loading.value = true
 	displayFolders.value = []
 	displayPhotos.value = []
+	loadingThumbnails.value = new Set()
 
 	await getFolderChildren(target.id)
 		.then(async (children: Folder[]) => {
@@ -104,6 +110,7 @@ const navigateTo = async (stackIndex: number) => {
 					.then((photos: MediaFile[]) => {
 						displayPhotos.value = photos
 						viewMode.value = "photos"
+						generateMissingThumbnails(photos)
 					})
 					.catch(handleError)
 			}
@@ -140,6 +147,28 @@ const onClearLibrary = async () => {
 		.catch(handleError)
 
 	clearing.value = false
+}
+
+/**
+ * For each photo in the list that has no thumbnail, fires a concurrent API request to
+ * generate one.  Each photo shows a spinner while its request is in-flight; once the
+ * thumbnail id is returned the photo card switches to displaying the image.
+ *
+ * @param photos the list of photos to inspect
+ */
+const generateMissingThumbnails = (photos: MediaFile[]) => {
+	for (const photo of photos) {
+		if (photo.thumbnailId != null) continue
+		loadingThumbnails.value.add(photo.id)
+		createPhotoThumbnail(photo.id)
+			.then(thumbnailId => {
+				photo.thumbnailId = thumbnailId
+			})
+			.catch(() => { /* silently ignore — card falls back to the default icon */ })
+			.finally(() => {
+				loadingThumbnails.value.delete(photo.id)
+			})
+	}
 }
 
 const handleError = (error: unknown) => {
@@ -272,7 +301,16 @@ const handleError = (error: unknown) => {
 					<div v-for="photo in displayPhotos" :key="photo.id" class="col">
 						<div class="media-card photo-card" @click="selectedPhotoId = photo.id" :title="photo.filename">
 							<div class="media-thumb">
-								<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" fill="#7090b0" viewBox="0 0 16 16">
+								<div v-if="loadingThumbnails.has(photo.id)" class="thumb-generating">
+									<span class="spinner-border spinner-border-sm text-secondary" role="status"></span>
+								</div>
+								<img
+									v-else-if="photo.thumbnailId"
+									:src="getThumbnailUrl(photo.thumbnailId)"
+									:alt="photo.filename"
+									class="thumb-img"
+								/>
+								<svg v-else xmlns="http://www.w3.org/2000/svg" width="48" height="48" fill="#7090b0" viewBox="0 0 16 16">
 									<path d="M6.502 7a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3z"/>
 									<path d="M14 14a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V2a2 2 0 0 1 2-2h5.5L14 4.5V14zM4 1a1 1 0 0 0-1 1v10l2.224-2.224a.5.5 0 0 1 .61-.075L8 11l2.157-3.02a.5.5 0 0 1 .76-.063L13 10V4.5h-2A1.5 1.5 0 0 1 9.5 3V1H4z"/>
 								</svg>
@@ -337,5 +375,19 @@ const handleError = (error: unknown) => {
 		white-space: nowrap;
 		border-top: 1px solid #dee2e6;
 		background: #fff;
+	}
+
+	.thumb-img {
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
+	}
+
+	.thumb-generating {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 100%;
+		height: 100%;
 	}
 </style>

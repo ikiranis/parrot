@@ -115,6 +115,44 @@ public class ThumbnailService {
 	}
 
 	/**
+	 * Generates a thumbnail for a single media file and returns the saved {@link Thumbnail} entity.
+	 * The thumbnail is a 150x150-pixel centre-crop JPEG written to
+	 * {@code thumbnails/YYYY/MM/DD/HH/<fileId>_<nanos>.jpg} relative to the application working directory.
+	 * The caller is responsible for linking the returned thumbnail to the {@link eu.apps4net.parrotApp.models.MediaFile}
+	 * and persisting the updated entity.
+	 *
+	 * @param fileId      the primary key of the media file; used as a prefix in the output filename
+	 * @param sourceImage absolute path to the source image file
+	 * @return the persisted {@link Thumbnail} entity
+	 * @throws IOException if the source image cannot be read or the output file cannot be written
+	 */
+	public Thumbnail generatePhotoThumbnail(Long fileId, Path sourceImage) throws IOException {
+		LocalDateTime now = LocalDateTime.now();
+		Path outputDir = Paths.get(
+				THUMBNAILS_ROOT,
+				String.valueOf(now.getYear()),
+				String.format("%02d", now.getMonthValue()),
+				String.format("%02d", now.getDayOfMonth()),
+				String.format("%02d", now.getHour()));
+
+		Files.createDirectories(outputDir);
+
+		String datePath = now.getYear() + "/" +
+				String.format("%02d", now.getMonthValue()) + "/" +
+				String.format("%02d", now.getDayOfMonth()) + "/" +
+				String.format("%02d", now.getHour());
+
+		String filename = fileId + "_" + System.nanoTime() + ".jpg";
+		Path outputPath = outputDir.resolve(filename);
+
+		if (!writeThumbnail(sourceImage, outputPath)) {
+			throw new IOException("Failed to write thumbnail for: " + sourceImage);
+		}
+
+		return thumbnailRepository.save(new Thumbnail(datePath + "/" + filename, ThumbnailType.FILE));
+	}
+
+	/**
 	 * Generates thumbnails for up to {@value #FOLDER_BATCH_SIZE} folders that have no
 	 * thumbnail yet, processing shallowest folders first (level 1, then 2, etc.).
 	 *

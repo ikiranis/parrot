@@ -48,6 +48,7 @@ export type MediaFile = {
 	filename: string
 	hash: string | null
 	kind: string
+	thumbnailId: number | null
 }
 
 /** Combined photo detail including MediaFile fields and optional PhotoTag metadata. */
