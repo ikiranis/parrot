@@ -46,6 +46,11 @@ public class MediaFile {
 	@Column(name = "kind")
 	private MediaKind kind;
 
+	/** Optional thumbnail for this media file. Null when no thumbnail has been generated yet. */
+	@OneToOne(fetch = FetchType.LAZY, cascade = CascadeType.ALL, orphanRemoval = true)
+	@JoinColumn(name = "thumbnail_id")
+	private Thumbnail thumbnail;
+
 	/** Required no-arg constructor for JPA. */
 	public MediaFile() {
 	}
@@ -174,5 +179,23 @@ public class MediaFile {
 	 */
 	public void setKind(MediaKind kind) {
 		this.kind = kind;
+	}
+
+	/**
+	 * Returns the thumbnail for this media file, or {@code null} if none has been generated yet.
+	 *
+	 * @return the thumbnail, or {@code null}
+	 */
+	public Thumbnail getThumbnail() {
+		return thumbnail;
+	}
+
+	/**
+	 * Sets the thumbnail for this media file.
+	 *
+	 * @param thumbnail the thumbnail to set, or {@code null} to clear it
+	 */
+	public void setThumbnail(Thumbnail thumbnail) {
+		this.thumbnail = thumbnail;
 	}
 }

@@ -62,6 +62,11 @@ public class Folder {
 	@Column(name = "last_update")
 	private LocalDateTime lastUpdate;
 
+	/** Optional thumbnail for this folder. Null when no thumbnail has been generated yet. */
+	@OneToOne(fetch = FetchType.LAZY, cascade = CascadeType.ALL, orphanRemoval = true)
+	@JoinColumn(name = "thumbnail_id")
+	private Thumbnail thumbnail;
+
 	/** Required no-arg constructor for JPA. */
 	public Folder() {
 	}
@@ -210,5 +215,23 @@ public class Folder {
 	 */
 	public void setLastUpdate(LocalDateTime lastUpdate) {
 		this.lastUpdate = lastUpdate;
+	}
+
+	/**
+	 * Returns the thumbnail for this folder, or {@code null} if none has been generated yet.
+	 *
+	 * @return the thumbnail, or {@code null}
+	 */
+	public Thumbnail getThumbnail() {
+		return thumbnail;
+	}
+
+	/**
+	 * Sets the thumbnail for this folder.
+	 *
+	 * @param thumbnail the thumbnail to set, or {@code null} to clear it
+	 */
+	public void setThumbnail(Thumbnail thumbnail) {
+		this.thumbnail = thumbnail;
 	}
 }
