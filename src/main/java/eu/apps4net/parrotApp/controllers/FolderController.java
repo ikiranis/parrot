@@ -1,16 +1,21 @@
 package eu.apps4net.parrotApp.controllers;
 
 import org.springframework.http.ResponseEntity;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 import eu.apps4net.parrotApp.exceptions.NotFoundException;
+import eu.apps4net.parrotApp.exceptions.ProcessingErrorException;
 import eu.apps4net.parrotApp.models.Folder;
 import eu.apps4net.parrotApp.models.MediaFile;
 import eu.apps4net.parrotApp.models.MediaKind;
 import eu.apps4net.parrotApp.repositories.MediaFileRepository;
 import eu.apps4net.parrotApp.services.FolderService;
+import eu.apps4net.parrotApp.services.ThumbnailService;
 
+import java.io.IOException;
 import java.util.List;
+import java.util.Map;
 
 /**
  * REST controller for folder operations.
@@ -28,15 +33,21 @@ public class FolderController {
 	/** Repository for querying media files within a folder. */
 	private final MediaFileRepository mediaFileRepository;
 
+	/** Service for generating folder thumbnails. */
+	private final ThumbnailService thumbnailService;
+
 	/**
 	 * Constructs a new {@code FolderController}.
 	 *
 	 * @param folderService       the folder service
 	 * @param mediaFileRepository the media file repository
+	 * @param thumbnailService    the thumbnail service
 	 */
-	public FolderController(FolderService folderService, MediaFileRepository mediaFileRepository) {
+	public FolderController(FolderService folderService, MediaFileRepository mediaFileRepository,
+							ThumbnailService thumbnailService) {
 		this.folderService = folderService;
 		this.mediaFileRepository = mediaFileRepository;
+		this.thumbnailService = thumbnailService;
 	}
 
 	/**
@@ -88,6 +99,34 @@ public class FolderController {
 				.orElseThrow(() -> new NotFoundException("Folder not found: " + id));
 		return ResponseEntity.ok(mediaFileRepository.findByLibraryFolderAndPathAndKind(
 				folder.getLibraryFolder(), folder.getPath(), MediaKind.IMAGE));
+	}
+
+	/**
+	 * Generates a thumbnail for the specified folder and returns its id.
+	 * If the folder already has a thumbnail, returns the existing id without regenerating.
+	 * Returns a 404 if no image files are found in the folder directory tree.
+	 *
+	 * @param id the primary key of the folder
+	 * @return a map with key {@code thumbnailId} set to the thumbnail primary key
+	 * @throws NotFoundException        if no folder with the given id exists, or the folder has no images
+	 * @throws ProcessingErrorException if thumbnail generation fails
+	 */
+	@PostMapping("{id}/thumbnail")
+	@Transactional
+	public Map<String, Long> generateThumbnail(@PathVariable Long id) {
+		Folder folder = folderService.getFolder(id)
+				.orElseThrow(() -> new NotFoundException("Folder not found: " + id));
+
+		if (folder.getThumbnailId() != null) {
+			return Map.of("thumbnailId", folder.getThumbnailId());
+		}
+
+		try {
+			Long thumbnailId = thumbnailService.generateSingleFolderThumbnail(folder);
+			return Map.of("thumbnailId", thumbnailId);
+		} catch (IOException e) {
+			throw new ProcessingErrorException("Thumbnail generation failed: " + e.getMessage());
+		}
 	}
 
 	/**

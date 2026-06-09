@@ -3,7 +3,7 @@ import { ref, Ref, onMounted } from "vue"
 import { language } from "@/functions/languageStore.ts"
 import { errorStore } from "@/components/error/errorStore.ts"
 import { scanLibraryFolders, clearLibrary, createPhotoThumbnail } from "@/api/photo.ts"
-import { getFoldersByLevel, getFolderChildren, getFolderPhotos, getThumbnailUrl } from "@/api/folder.ts"
+import { getFoldersByLevel, getFolderChildren, getFolderPhotos, getThumbnailUrl, createFolderThumbnail } from "@/api/folder.ts"
 import { ScanResult, MediaFile, Folder } from "@/types"
 import Error from "@/components/error/Error.vue"
 import Loading from "@/components/utilities/Loading.vue"
@@ -27,6 +27,9 @@ const displayPhotos: Ref<MediaFile[]> = ref([])
 /** Set of photo ids currently awaiting thumbnail generation. */
 const loadingThumbnails: Ref<Set<number>> = ref(new Set())
 
+/** Set of folder ids currently awaiting thumbnail generation. */
+const loadingFolderThumbnails: Ref<Set<number>> = ref(new Set())
+
 onMounted(() => {
 	loadRoot()
 })
@@ -44,11 +47,13 @@ const loadRoot = async () => {
 	displayFolders.value = []
 	displayPhotos.value = []
 	loadingThumbnails.value = new Set()
+	loadingFolderThumbnails.value = new Set()
 
 	await getFoldersByLevel(1)
 		.then((data: Folder[]) => {
 			displayFolders.value = data
 			viewMode.value = "folders"
+			generateMissingFolderThumbnails(data)
 		})
 		.catch(handleError)
 
@@ -65,11 +70,14 @@ const navigateInto = async (folder: Folder) => {
 	displayFolders.value = []
 	displayPhotos.value = []
 
+	loadingFolderThumbnails.value = new Set()
+
 	await getFolderChildren(folder.id)
 		.then(async (children: Folder[]) => {
 			if (children.length > 0) {
 				displayFolders.value = children
 				viewMode.value = "folders"
+				generateMissingFolderThumbnails(children)
 			} else {
 				await getFolderPhotos(folder.id)
 					.then((photos: MediaFile[]) => {
@@ -99,12 +107,14 @@ const navigateTo = async (stackIndex: number) => {
 	displayFolders.value = []
 	displayPhotos.value = []
 	loadingThumbnails.value = new Set()
+	loadingFolderThumbnails.value = new Set()
 
 	await getFolderChildren(target.id)
 		.then(async (children: Folder[]) => {
 			if (children.length > 0) {
 				displayFolders.value = children
 				viewMode.value = "folders"
+				generateMissingFolderThumbnails(children)
 			} else {
 				await getFolderPhotos(target.id)
 					.then((photos: MediaFile[]) => {
@@ -147,6 +157,28 @@ const onClearLibrary = async () => {
 		.catch(handleError)
 
 	clearing.value = false
+}
+
+/**
+ * For each folder in the list that has no thumbnail, fires a concurrent API request to
+ * generate one.  Each folder card shows a spinner while its request is in-flight; once the
+ * thumbnail id is returned the card switches to displaying the image.
+ *
+ * @param folders the list of folders to inspect
+ */
+const generateMissingFolderThumbnails = (folders: Folder[]) => {
+	for (const folder of folders) {
+		if (folder.thumbnailId != null) continue
+		loadingFolderThumbnails.value.add(folder.id)
+		createFolderThumbnail(folder.id)
+			.then(thumbnailId => {
+				folder.thumbnailId = thumbnailId
+			})
+			.catch(() => { /* silently ignore — card falls back to the folder icon */ })
+			.finally(() => {
+				loadingFolderThumbnails.value.delete(folder.id)
+			})
+	}
 }
 
 /**
@@ -263,8 +295,11 @@ const handleError = (error: unknown) => {
 				<div v-for="folder in displayFolders" :key="folder.id" class="col">
 					<div class="media-card folder-card" @click="navigateInto(folder)" :title="folder.path">
 						<div class="media-thumb">
+							<div v-if="loadingFolderThumbnails.has(folder.id)" class="thumb-generating">
+								<span class="spinner-border spinner-border-sm text-secondary" role="status"></span>
+							</div>
 							<img
-								v-if="folder.thumbnailId"
+								v-else-if="folder.thumbnailId"
 								:src="getThumbnailUrl(folder.thumbnailId)"
 								:alt="folderName(folder)"
 								class="thumb-img"

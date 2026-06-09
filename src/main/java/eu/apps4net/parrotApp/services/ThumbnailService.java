@@ -153,6 +153,57 @@ public class ThumbnailService {
 	}
 
 	/**
+	 * Generates a thumbnail for a single folder and returns the saved thumbnail id.
+	 * A random image from the folder directory tree is used as the source.
+	 * The caller is responsible for checking whether the folder already has a thumbnail
+	 * before calling this method to avoid duplicate generation.
+	 *
+	 * @param folder the folder to generate a thumbnail for
+	 * @return the id of the persisted {@link Thumbnail}
+	 * @throws IOException if the folder directory cannot be read, no image files are found,
+	 *                     or the thumbnail file cannot be written
+	 */
+	public Long generateSingleFolderThumbnail(Folder folder) throws IOException {
+		Path folderAbsPath = Paths.get(folder.getLibraryFolder().getPath()).resolve(folder.getPath());
+
+		if (!Files.isDirectory(folderAbsPath)) {
+			throw new IOException("Path is not a directory: " + folderAbsPath);
+		}
+
+		Path sourceImage = pickRandomImage(folderAbsPath);
+		if (sourceImage == null) {
+			throw new IOException("No image files found in folder: " + folderAbsPath);
+		}
+
+		LocalDateTime now = LocalDateTime.now();
+		Path outputDir = Paths.get(
+				THUMBNAILS_ROOT,
+				String.valueOf(now.getYear()),
+				String.format("%02d", now.getMonthValue()),
+				String.format("%02d", now.getDayOfMonth()),
+				String.format("%02d", now.getHour()));
+
+		Files.createDirectories(outputDir);
+
+		String datePath = now.getYear() + "/" +
+				String.format("%02d", now.getMonthValue()) + "/" +
+				String.format("%02d", now.getDayOfMonth()) + "/" +
+				String.format("%02d", now.getHour());
+
+		String filename = folder.getId() + "_" + System.nanoTime() + ".jpg";
+		Path outputPath = outputDir.resolve(filename);
+
+		if (!writeThumbnail(sourceImage, outputPath)) {
+			throw new IOException("Failed to write thumbnail for folder: " + folder.getId());
+		}
+
+		Thumbnail thumbnail = thumbnailRepository.save(new Thumbnail(datePath + "/" + filename, ThumbnailType.FOLDER));
+		folder.setThumbnail(thumbnail);
+		folderRepository.save(folder);
+		return thumbnail.getId();
+	}
+
+	/**
 	 * Generates thumbnails for up to {@value #FOLDER_BATCH_SIZE} folders that have no
 	 * thumbnail yet, processing shallowest folders first (level 1, then 2, etc.).
 	 *

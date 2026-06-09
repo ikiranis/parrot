@@ -84,6 +84,18 @@ export const getThumbnailUrl = (thumbnailId: number): string =>
 	config.defaultServer() + `/api/thumbnails/${thumbnailId}`
 
 /**
+ * Generates a thumbnail for the specified folder and returns its id.
+ * If a thumbnail already exists for the folder, returns the existing id.
+ *
+ * @param id the primary key of the folder
+ * @returns the thumbnail id
+ */
+export const createFolderThumbnail = async (id: number): Promise<number> => {
+	const response = await axios.post(config.defaultServer() + `/api/folders/${id}/thumbnail`)
+	return response.data.thumbnailId
+}
+
+/**
  * Deletes all folder records from the database.
  *
  * @returns void on success
