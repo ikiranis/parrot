@@ -19,6 +19,7 @@ const isFullscreen = ref(false)
 const history: Ref<MediaFile[]> = ref([])
 const historyIndex = ref(-1)
 const isAutoPlay = ref(false)
+const hoverRating = ref(0)
 const slideshowTime = ref(3000)
 let slideshowTimer: ReturnType<typeof setInterval> | null = null
 
@@ -162,9 +163,8 @@ const handleKeydown = (event: KeyboardEvent) => {
 	}
 }
 
-const handleKeyup = async (event: KeyboardEvent) => {
-	if (!currentPhoto.value || !['1', '2', '3', '4', '5'].includes(event.key)) return
-	const rating = parseInt(event.key)
+const ratePhoto = async (rating: number) => {
+	if (!currentPhoto.value) return
 	const photoId = currentPhoto.value.id
 	const prev = currentDetail.value
 	if (prev) currentDetail.value = { ...prev, rating }
@@ -173,11 +173,15 @@ const handleKeyup = async (event: KeyboardEvent) => {
 		if (currentPhoto.value?.id === photoId) {
 			currentDetail.value = updated
 		}
-
-		navigateForward()
 	} catch {
 		// best-effort — optimistic update stays
 	}
+}
+
+const handleKeyup = async (event: KeyboardEvent) => {
+	if (!currentPhoto.value || !['1', '2', '3', '4', '5'].includes(event.key)) return
+	await ratePhoto(parseInt(event.key))
+	navigateForward()
 }
 
 const toggleFullscreen = async () => {
@@ -200,12 +204,17 @@ const toggleFullscreen = async () => {
 				class="slideshow__image"
 			/>
 
-			<div class="slideshow__rating">
+			<div class="slideshow__rating" @mouseleave="hoverRating = 0">
 				<span
 					v-for="n in 5"
 					:key="n"
 					class="slideshow__star"
-					:class="{ 'slideshow__star--filled': currentDetail?.rating != null && n <= currentDetail.rating }"
+					:class="{
+						'slideshow__star--filled': hoverRating > 0 ? n <= hoverRating : currentDetail?.rating != null && n <= currentDetail.rating,
+						'slideshow__star--hover': hoverRating > 0 && n <= hoverRating,
+					}"
+					@mouseenter="hoverRating = n"
+					@click="ratePhoto(n)"
 				>★</span>
 			</div>
 
@@ -342,9 +351,15 @@ const toggleFullscreen = async () => {
 		font-size: 1.1rem;
 		color: rgba(255, 255, 255, 0.25);
 		line-height: 1;
+		cursor: pointer;
+		transition: color 0.1s;
 
 		&--filled {
 			color: #f5c518;
+		}
+
+		&--hover {
+			color: #ffd700;
 		}
 	}
 
