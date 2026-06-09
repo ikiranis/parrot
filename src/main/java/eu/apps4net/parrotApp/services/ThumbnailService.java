@@ -118,7 +118,7 @@ public class ThumbnailService {
 	 * Generates thumbnails for up to {@value #FOLDER_BATCH_SIZE} folders that have no
 	 * thumbnail yet, processing shallowest folders first (level 1, then 2, etc.).
 	 *
-	 * For each folder a random image file from its directory is chosen as the source.
+	 * For each folder a random image file from its directory tree (including subdirectories) is chosen as the source.
 	 * A 150x150-pixel centre-crop JPEG is written to
 	 * {@code thumbnails/YYYY/MM/DD/HH/<folderId>_<nanos>.jpg}, a {@link Thumbnail} record
 	 * is persisted, and the folder is updated to reference it.
@@ -188,15 +188,15 @@ public class ThumbnailService {
 	}
 
 	/**
-	 * Lists the direct files of {@code dir} and returns one image file chosen at random,
-	 * or {@code null} if the directory contains no supported image files.
+	 * Walks {@code dir} recursively and returns one image file chosen at random,
+	 * or {@code null} if no supported image files are found anywhere in the tree.
 	 *
-	 * @param dir the directory to search
+	 * @param dir the root directory to search
 	 * @return a randomly selected image {@link Path}, or {@code null} if none found
-	 * @throws IOException if the directory cannot be listed
+	 * @throws IOException if the directory tree cannot be walked
 	 */
 	private Path pickRandomImage(Path dir) throws IOException {
-		try (Stream<Path> files = Files.list(dir)) {
+		try (Stream<Path> files = Files.walk(dir)) {
 			List<Path> images = files
 					.filter(Files::isRegularFile)
 					.filter(f -> {
