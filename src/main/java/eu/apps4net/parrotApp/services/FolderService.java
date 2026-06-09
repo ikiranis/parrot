@@ -130,6 +130,10 @@ public class FolderService {
 	 * and {@code dirPath}: the root itself is level 0, its direct children are level 1,
 	 * and so on.
 	 *
+	 * Every ancestor directory between {@code root} and {@code dirPath} is also persisted
+	 * (with a null hash and finished=true) so that the folder tree is fully represented
+	 * in the database even when intermediate directories contain no direct files.
+	 *
 	 * @param dirPath       the leaf directory to inspect; must be an existing directory
 	 * @param root          the library root used to compute the nesting level and relative path
 	 * @param libraryFolder the library folder this directory belongs to
@@ -138,6 +142,8 @@ public class FolderService {
 	 * @throws IOException if the directory cannot be listed or a file size cannot be read
 	 */
 	public boolean checkAndSaveFolder(Path dirPath, Path root, LibraryFolder libraryFolder) throws IOException {
+		ensureParentFolders(dirPath, root, libraryFolder);
+
 		List<Path> files = new ArrayList<>();
 		try (Stream<Path> listing = Files.list(dirPath)) {
 			listing.filter(Files::isRegularFile).forEach(files::add);
@@ -168,6 +174,34 @@ public class FolderService {
 
 		folderRepository.save(new Folder(libraryFolder, relativePath, newHash, level, LocalDateTime.now()));
 		return true;
+	}
+
+	/**
+	 * Ensures every ancestor directory between {@code root} and {@code dirPath} has a
+	 * {@link Folder} record.  Ancestors that contain no direct files are saved with a
+	 * null hash and {@code finished=true} because they have no files to index.
+	 * If two threads race to insert the same ancestor, the second insert is silently
+	 * ignored — the unique constraint on {@code (library_folder_id, path)} guarantees
+	 * at-most-one record per path.
+	 *
+	 * @param dirPath       the leaf directory whose ancestors are to be persisted
+	 * @param root          the library root; ancestors at depth 0 (the root itself) are not saved
+	 * @param libraryFolder the library folder this directory belongs to
+	 */
+	private void ensureParentFolders(Path dirPath, Path root, LibraryFolder libraryFolder) {
+		Path relative = root.relativize(dirPath);
+		for (int i = 1; i < relative.getNameCount(); i++) {
+			String ancestorPath = relative.subpath(0, i).toString();
+			if (folderRepository.findByLibraryFolderAndPath(libraryFolder, ancestorPath).isEmpty()) {
+				try {
+					Folder parent = new Folder(libraryFolder, ancestorPath, null, i, LocalDateTime.now());
+					parent.setFinished(true);
+					folderRepository.save(parent);
+				} catch (Exception ignored) {
+					// concurrent insert from another thread — record already exists
+				}
+			}
+		}
 	}
 
 	/**

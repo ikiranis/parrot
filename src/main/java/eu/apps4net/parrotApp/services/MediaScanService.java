@@ -484,8 +484,8 @@ public class MediaScanService {
 	 * Phase 1 (synchronous) — walks {@code root} recursively and collects every directory
 	 * that contains at least one direct regular file.
 	 *
-	 * Directories whose names start with {@code #} (e.g. {@code #recycle}) are skipped
-	 * entirely, as are any directories that cannot be accessed.
+	 * Directories whose names start with {@code #} (e.g. {@code #recycle}) or {@code .}
+	 * (hidden directories) are skipped entirely, as are any directories that cannot be accessed.
 	 *
 	 * @param root the root directory to walk
 	 * @return list of directories that contain at least one direct regular file
@@ -497,7 +497,7 @@ public class MediaScanService {
 			@Override
 			public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) {
 				String name = dir.getFileName() != null ? dir.getFileName().toString() : "";
-				if (name.startsWith("#")) {
+				if (name.startsWith("#") || name.startsWith(".")) {
 					return FileVisitResult.SKIP_SUBTREE;
 				}
 				return FileVisitResult.CONTINUE;
