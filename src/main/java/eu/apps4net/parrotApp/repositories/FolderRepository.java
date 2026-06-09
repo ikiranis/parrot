@@ -1,6 +1,8 @@
 package eu.apps4net.parrotApp.repositories;
 
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
 import org.springframework.stereotype.Repository;
 
 import eu.apps4net.parrotApp.models.Folder;
@@ -31,4 +33,15 @@ public interface FolderRepository extends JpaRepository<Folder, Long> {
 	 * @return list of matching {@link Folder} records ordered by level
 	 */
 	List<Folder> findByLevelGreaterThanOrderByLevelAsc(int level);
+
+	/**
+	 * Returns up to {@code pageable.getPageSize()} {@link Folder} records that have no thumbnail
+	 * assigned yet, ordered by nesting level ascending so that shallow folders (level 1, then 2,
+	 * etc.) are processed before deeper ones.
+	 *
+	 * @param pageable controls the result-set size; page index must be 0
+	 * @return {@link Folder} records without a thumbnail, shallowest first
+	 */
+	@Query(value = "SELECT * FROM folder WHERE thumbnail_id IS NULL ORDER BY level ASC", nativeQuery = true)
+	List<Folder> findFoldersWithoutThumbnailOrderedByLevel(Pageable pageable);
 }

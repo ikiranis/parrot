@@ -70,4 +70,14 @@ public class ScanJobService {
 		ScanJobState state = currentJob.get();
 		return state == null ? ScanJobResponse.idle() : ScanJobResponse.from(state);
 	}
+
+	/**
+	 * Returns {@code true} if a scan job is currently running.
+	 *
+	 * @return {@code true} when the current job's status is {@link ScanStatus#RUNNING}
+	 */
+	public boolean isScanning() {
+		ScanJobState state = currentJob.get();
+		return state != null && state.getStatus() == ScanStatus.RUNNING;
+	}
 }

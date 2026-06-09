@@ -2,6 +2,7 @@ package eu.apps4net.parrotApp;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 import eu.apps4net.parrotApp.configurations.Language;
 import eu.apps4net.parrotApp.services.SettingService;
@@ -11,6 +12,7 @@ import eu.apps4net.parrotApp.services.SettingService;
  * Bootstraps the application context and initialises the actions language.
  */
 @SpringBootApplication
+@EnableScheduling
 public class ParrotApp {
 
 	/** Spring-managed {@link SettingService} instance, resolved at construction time. */
