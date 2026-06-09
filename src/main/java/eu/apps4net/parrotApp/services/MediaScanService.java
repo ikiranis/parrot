@@ -53,7 +53,7 @@ import java.util.stream.Stream;
  * In background scans, phases 2 and 3 run concurrently: the tag scanner starts in a
  * separate thread alongside the file scanner and polls the database for newly added files.
  * If no untagged records are found while the file scan is still in progress, the tag
- * scanner sleeps for 3 minutes before retrying.
+ * scanner sleeps in 5-second increments and wakes immediately when the file scan finishes.
  *
  * When called with a {@link ScanJobState}, phase transitions and every counter increment
  * are mirrored into the job state so that background scans expose live progress and error
@@ -349,9 +349,9 @@ public class MediaScanService {
 	 *
 	 * On each iteration the method counts all untagged records across every registered scanner kind.
 	 * If records are found, it transitions the job state to TAGGING and drains them in batches.
-	 * If no records are found and the file scan has not yet finished, the thread sleeps for
-	 * 3 minutes before retrying. Once the file scan is complete and no untagged records remain,
-	 * the method returns.
+	 * If no records are found and the file scan has not yet finished, the thread sleeps in
+	 * 5-second increments (up to 3 minutes total) and exits the sleep immediately when the file
+	 * scan finishes. Once the file scan is complete and no untagged records remain, the method returns.
 	 *
 	 * The cumulative total passed to {@link ScanJobState#setTotalFiles} grows across iterations
 	 * so that the progress percentage never regresses when a second pass finds additional files.
@@ -373,7 +373,10 @@ public class MediaScanService {
 					break;
 				}
 				try {
-					Thread.sleep(3 * 60 * 1000L);
+					long deadline = System.currentTimeMillis() + 3 * 60 * 1000L;
+					while (!fileScanDone.get() && System.currentTimeMillis() < deadline) {
+						Thread.sleep(5_000L);
+					}
 				} catch (InterruptedException e) {
 					Thread.currentThread().interrupt();
 					return;
