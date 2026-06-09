@@ -344,36 +344,6 @@ public class MediaScanService {
 	}
 
 	/**
-	 * Phase 3 (background) — queries the database in batches of {@value #TAG_SCAN_BATCH_SIZE}
-	 * for {@link MediaFile} records of each kind that has a registered scanner but no tag yet,
-	 * then processes each batch in parallel until none remain.
-	 * Always fetches page 0 so that files tagged in a previous batch fall out of the result set
-	 * and pagination offsets never drift.
-	 *
-	 * @param state job state for live counter updates and error logging
-	 */
-	private void runTagScanners(ScanJobState state) {
-		long totalToTag = 0;
-		for (MediaKind kind : tagScanners.keySet()) {
-			totalToTag += mediaFileRepository.countByKindWithoutPhotoTag(kind);
-		}
-		state.setTotalFiles((int) totalToTag);
-
-		if (totalToTag == 0) return;
-
-		for (Map.Entry<MediaKind, MediaTagScanner> entry : tagScanners.entrySet()) {
-			List<MediaFile> batch;
-			do {
-				batch = mediaFileRepository
-						.findByKindWithoutPhotoTag(entry.getKey(), PageRequest.of(0, TAG_SCAN_BATCH_SIZE))
-						.getContent();
-				if (batch.isEmpty()) break;
-				processTagBatch(batch, entry.getValue(), state);
-			} while (true);
-		}
-	}
-
-	/**
 	 * Phase 3 (parallel background) — polls the database for {@link MediaFile} records without
 	 * tags and processes them while Phase 2 is still running.
 	 *
@@ -886,11 +856,6 @@ public class MediaScanService {
 			this.jobState = jobState;
 		}
 
-		void incrementAdded() {
-			added.incrementAndGet();
-			if (jobState != null) jobState.incrementAdded();
-		}
-
 		void addAdded(int n) {
 			added.addAndGet(n);
 			if (jobState != null) jobState.addAdded(n);
@@ -927,10 +892,6 @@ public class MediaScanService {
 		void incrementFoldersSkipped() {
 			foldersSkipped.incrementAndGet();
 			if (jobState != null) jobState.incrementFoldersSkipped();
-		}
-
-		void incrementTagged() {
-			if (jobState != null) jobState.incrementTagged();
 		}
 
 		void addTagged(int n) {
