@@ -48,6 +48,27 @@ public class FolderService {
 	}
 
 	/**
+	 * Returns all folders at the specified nesting level.
+	 *
+	 * @param level the exact nesting level to filter by (1 = direct children of library root)
+	 * @return list of {@link Folder} records at that level
+	 */
+	public List<Folder> getFoldersByLevel(int level) {
+		return folderRepository.findByLevel(level);
+	}
+
+	/**
+	 * Returns the direct child folders of the given parent folder.
+	 *
+	 * @param parent the parent folder whose children are requested
+	 * @return list of direct child {@link Folder} records
+	 */
+	public List<Folder> getChildFolders(Folder parent) {
+		return folderRepository.findByLibraryFolderAndLevelAndPathStartingWith(
+				parent.getLibraryFolder(), parent.getLevel() + 1, parent.getPath() + "/");
+	}
+
+	/**
 	 * Finds a folder by its primary key.
 	 *
 	 * @param id the folder identifier

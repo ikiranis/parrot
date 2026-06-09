@@ -44,4 +44,25 @@ public interface FolderRepository extends JpaRepository<Folder, Long> {
 	 */
 	@Query(value = "SELECT * FROM folder WHERE thumbnail_id IS NULL ORDER BY level ASC", nativeQuery = true)
 	List<Folder> findFoldersWithoutThumbnailOrderedByLevel(Pageable pageable);
+
+	/**
+	 * Returns all folders at the given nesting level.
+	 *
+	 * @param level the exact level to filter by
+	 * @return list of {@link Folder} records at that level, unordered
+	 */
+	List<Folder> findByLevel(int level);
+
+	/**
+	 * Returns all direct child folders of the given parent.
+	 * Children are identified by belonging to the same library folder, being exactly one
+	 * level deeper than the parent, and having paths that start with the parent path prefix.
+	 *
+	 * @param libraryFolder the library folder the children belong to
+	 * @param childLevel    the expected level of child folders (parent.level + 1)
+	 * @param pathPrefix    the path prefix used to match children ({@code parent.path + "/"})
+	 * @return list of direct child {@link Folder} records
+	 */
+	List<Folder> findByLibraryFolderAndLevelAndPathStartingWith(
+			LibraryFolder libraryFolder, int childLevel, String pathPrefix);
 }

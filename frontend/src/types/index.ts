@@ -83,6 +83,11 @@ export type Folder = {
 	level: number
 	finished: boolean
 	lastUpdate: string | null
+	thumbnailId: number | null
+	libraryFolder: {
+		id: number
+		path: string
+	}
 }
 
 /** A configured library folder used as a scan source. */

@@ -1,5 +1,6 @@
 package eu.apps4net.parrotApp.models;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
@@ -61,6 +62,14 @@ public class Folder {
 	/** Timestamp of the last detected change in this folder. */
 	@Column(name = "last_update")
 	private LocalDateTime lastUpdate;
+
+	/**
+	 * Primary key of the linked thumbnail, readable without loading the lazy entity.
+	 * Mirrors the {@code thumbnail_id} FK column; managed exclusively by the ORM via
+	 * {@link #thumbnail} — never set this field directly.
+	 */
+	@Column(name = "thumbnail_id", insertable = false, updatable = false)
+	private Long thumbnailId;
 
 	/** Optional thumbnail for this folder. Null when no thumbnail has been generated yet. */
 	@OneToOne(fetch = FetchType.LAZY, cascade = CascadeType.ALL, orphanRemoval = true)
@@ -218,10 +227,21 @@ public class Folder {
 	}
 
 	/**
+	 * Returns the primary key of the linked thumbnail without triggering a lazy load,
+	 * or {@code null} if no thumbnail has been generated yet.
+	 *
+	 * @return the thumbnail id, or {@code null}
+	 */
+	public Long getThumbnailId() {
+		return thumbnailId;
+	}
+
+	/**
 	 * Returns the thumbnail for this folder, or {@code null} if none has been generated yet.
 	 *
 	 * @return the thumbnail, or {@code null}
 	 */
+	@JsonIgnore
 	public Thumbnail getThumbnail() {
 		return thumbnail;
 	}
