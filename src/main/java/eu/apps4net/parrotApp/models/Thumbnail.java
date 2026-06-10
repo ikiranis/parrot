@@ -4,6 +4,7 @@ import jakarta.persistence.*;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
+import java.time.LocalDateTime;
 
 /**
  * JPA entity representing a thumbnail image for a folder or media file.
@@ -31,6 +32,10 @@ public class Thumbnail {
 	@Column(name = "type", nullable = false)
 	private ThumbnailType type;
 
+	/** Timestamp of the last thumbnail generation, set automatically on insert and update. */
+	@Column(name = "date_update", nullable = false)
+	private LocalDateTime dateUpdate;
+
 	/** Required no-arg constructor for JPA. */
 	public Thumbnail() {
 	}
@@ -44,6 +49,13 @@ public class Thumbnail {
 	public Thumbnail(String path, ThumbnailType type) {
 		this.path = path;
 		this.type = type;
+	}
+
+	/** Sets {@code dateUpdate} to the current timestamp before insert or update. */
+	@PrePersist
+	@PreUpdate
+	private void stampDate() {
+		this.dateUpdate = LocalDateTime.now();
 	}
 
 	/**
@@ -98,5 +110,23 @@ public class Thumbnail {
 	 */
 	public void setType(ThumbnailType type) {
 		this.type = type;
+	}
+
+	/**
+	 * Returns the timestamp of the last thumbnail generation.
+	 *
+	 * @return the date and time when this thumbnail was last generated
+	 */
+	public LocalDateTime getDateUpdate() {
+		return dateUpdate;
+	}
+
+	/**
+	 * Sets the timestamp of the last thumbnail generation.
+	 *
+	 * @param dateUpdate the date and time to set
+	 */
+	public void setDateUpdate(LocalDateTime dateUpdate) {
+		this.dateUpdate = dateUpdate;
 	}
 }
