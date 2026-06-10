@@ -66,4 +66,14 @@ public interface PhotoTagRepository extends JpaRepository<PhotoTag, Long> {
 	 * @return list of matching {@link PhotoTag} records
 	 */
 	List<PhotoTag> findAllByMediaFileIn(java.util.Collection<MediaFile> mediaFiles);
+
+	/**
+	 * Returns {@code (mediaFileId, tagId)} pairs for all photo tags whose media file id is in
+	 * the given set. Returns only IDs to keep the result lightweight — no full entities are loaded.
+	 *
+	 * @param mediaFileIds the media file primary keys to look up
+	 * @return list of two-element {@code Object[]} rows: {@code [mediaFileId, tagId]}
+	 */
+	@Query("SELECT pt.mediaFile.id, pt.id FROM PhotoTag pt WHERE pt.mediaFile.id IN :mediaFileIds")
+	List<Object[]> findTagIdByMediaFileIdIn(@Param("mediaFileIds") java.util.Collection<Long> mediaFileIds);
 }

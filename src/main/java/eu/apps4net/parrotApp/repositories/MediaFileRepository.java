@@ -61,6 +61,22 @@ public interface MediaFileRepository extends JpaRepository<MediaFile, Long> {
 	List<String> findFilenamesByLibraryFolderAndPath(LibraryFolder libraryFolder, String path);
 
 	/**
+	 * Returns the media files in the given directory whose filename is in the provided set.
+	 * Prefer this over {@link #findByLibraryFolderAndPath} when only specific filenames are needed,
+	 * to avoid loading the entire directory into the persistence context.
+	 *
+	 * @param lf        the library folder the files belong to
+	 * @param path      the directory path relative to the library folder root
+	 * @param filenames the filenames to look up
+	 * @return list of matching {@link MediaFile} records
+	 */
+	@Query("SELECT mf FROM MediaFile mf WHERE mf.libraryFolder = :lf AND mf.path = :path AND mf.filename IN :filenames")
+	List<MediaFile> findByLibraryFolderAndPathAndFilenameIn(
+			@org.springframework.data.repository.query.Param("lf") LibraryFolder lf,
+			@org.springframework.data.repository.query.Param("path") String path,
+			@org.springframework.data.repository.query.Param("filenames") java.util.Collection<String> filenames);
+
+	/**
 	 * Returns a paginated list of media files of the given kind.
 	 *
 	 * @param kind     the media kind to filter by

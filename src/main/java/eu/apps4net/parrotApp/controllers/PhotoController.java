@@ -7,6 +7,8 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.jdbc.core.BatchPreparedStatementSetter;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
@@ -31,6 +33,9 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.sql.PreparedStatement;
+import java.sql.SQLException;
+import java.sql.Types;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -62,6 +67,9 @@ public class PhotoController {
 	/** Service for generating and retrieving thumbnails. */
 	private final ThumbnailService thumbnailService;
 
+	/** JDBC template used for bulk import writes, bypassing JPA dirty-checking overhead. */
+	private final JdbcTemplate jdbcTemplate;
+
 	/**
 	 * Constructs a new {@code PhotoController}.
 	 *
@@ -70,17 +78,20 @@ public class PhotoController {
 	 * @param photoTagRepository  the photo tag repository
 	 * @param libraryFolderService the library folder service
 	 * @param thumbnailService    the thumbnail service
+	 * @param jdbcTemplate        the JDBC template
 	 */
 	public PhotoController(MediaScanService mediaScanService,
 						   MediaFileRepository mediaFileRepository,
 						   PhotoTagRepository photoTagRepository,
 						   LibraryFolderService libraryFolderService,
-						   ThumbnailService thumbnailService) {
+						   ThumbnailService thumbnailService,
+						   JdbcTemplate jdbcTemplate) {
 		this.mediaScanService = mediaScanService;
 		this.mediaFileRepository = mediaFileRepository;
 		this.photoTagRepository = photoTagRepository;
 		this.libraryFolderService = libraryFolderService;
 		this.thumbnailService = thumbnailService;
+		this.jdbcTemplate = jdbcTemplate;
 	}
 
 	/**
@@ -378,10 +389,12 @@ public class PhotoController {
 	 * A {@link PhotoTag} is created if none exists.
 	 * Only {@code rating} and {@code viewCount} fields are updated; all other metadata is preserved.
 	 *
-	 * Library folders are loaded once; MediaFiles are fetched per unique directory rather than per
-	 * item; existing PhotoTags are batch-loaded in a single query; saves are flushed in one
-	 * {@code saveAll} call. This keeps the DB round-trip count proportional to the number of
-	 * distinct directories, not the number of items.
+	 * Performance strategy:
+	 * - Library folders are loaded once and matched in-memory.
+	 * - MediaFiles are fetched only for the exact filenames needed (not whole directories).
+	 * - Existing tag IDs are fetched as a lightweight ID-only projection.
+	 * - Writes bypass JPA entirely via {@link JdbcTemplate} batch statements, avoiding both
+	 *   IDENTITY-generation overhead on INSERTs and first-level cache dirty-checking on flush.
 	 *
 	 * @param items list of {@link TagExportItemDTO} entries to import
 	 * @return a map with keys {@code updated} (matched and saved) and {@code notFound} (unmatched entries)
@@ -392,7 +405,7 @@ public class PhotoController {
 		int updated = 0;
 		int notFound = 0;
 
-		// Load all library folders once and sort longest-first so the first prefix match wins
+		// Load all library folders once; sort longest-first so the first prefix match is the deepest
 		List<LibraryFolder> libraryFolders = libraryFolderService.getAll();
 		libraryFolders.sort((a, b) -> Integer.compare(b.getPath().length(), a.getPath().length()));
 
@@ -419,58 +432,87 @@ public class PhotoController {
 			return ResponseEntity.ok(Map.of("updated", updated, "notFound", notFound));
 		}
 
-		// Group resolved items by (lfId|relativePath) to issue one DB query per unique directory
+		// Group by (lfId|relativePath); fetch only the specific filenames needed per directory
 		Map<String, List<ResolvedItem>> byDir = new HashMap<>();
 		for (ResolvedItem r : resolved) {
 			byDir.computeIfAbsent(r.lf().getId() + "|" + r.relativePath(), k -> new ArrayList<>()).add(r);
 		}
 
-		// Batch-load MediaFiles directory by directory and index them by a composite key
-		Map<String, MediaFile> mediaFileByKey = new HashMap<>();
-		List<MediaFile> allMatchedFiles = new ArrayList<>();
+		Map<String, Long> mediaFileIdByKey = new HashMap<>(); // (lfId|path|filename) -> mediaFileId
 		for (Map.Entry<String, List<ResolvedItem>> entry : byDir.entrySet()) {
 			ResolvedItem sample = entry.getValue().get(0);
-			List<MediaFile> filesInDir = mediaFileRepository.findByLibraryFolderAndPath(
-					sample.lf(), sample.relativePath());
-			for (MediaFile mf : filesInDir) {
-				mediaFileByKey.put(sample.lf().getId() + "|" + sample.relativePath() + "|" + mf.getFilename(), mf);
-			}
-			allMatchedFiles.addAll(filesInDir);
-		}
-
-		// Batch-load all existing PhotoTags for the matched media files in one query
-		Map<Long, PhotoTag> tagByMediaFileId = new HashMap<>();
-		if (!allMatchedFiles.isEmpty()) {
-			for (PhotoTag tag : photoTagRepository.findAllByMediaFileIn(allMatchedFiles)) {
-				tagByMediaFileId.put(tag.getMediaFile().getId(), tag);
+			List<String> filenames = entry.getValue().stream().map(r -> r.item().getFilename()).toList();
+			List<MediaFile> files = mediaFileRepository.findByLibraryFolderAndPathAndFilenameIn(
+					sample.lf(), sample.relativePath(), filenames);
+			for (MediaFile mf : files) {
+				mediaFileIdByKey.put(sample.lf().getId() + "|" + sample.relativePath() + "|" + mf.getFilename(), mf.getId());
 			}
 		}
 
-		// Build or update tags in memory, then persist in a single saveAll call
-		List<PhotoTag> tagsToSave = new ArrayList<>();
+		// Lightweight ID-only lookup for existing PhotoTags — no full entities loaded
+		List<Long> matchedMediaFileIds = new ArrayList<>(mediaFileIdByKey.values());
+		Map<Long, Long> tagIdByMediaFileId = new HashMap<>(); // mediaFileId -> tagId
+		if (!matchedMediaFileIds.isEmpty()) {
+			for (Object[] row : photoTagRepository.findTagIdByMediaFileIdIn(matchedMediaFileIds)) {
+				tagIdByMediaFileId.put((Long) row[0], (Long) row[1]);
+			}
+		}
+
+		// Classify each resolved item as an INSERT or UPDATE
+		record TagWrite(Long mediaFileId, Long tagId, Integer rating, Long viewCount) {}
+		List<TagWrite> toUpdate = new ArrayList<>();
+		List<TagWrite> toInsert = new ArrayList<>();
 		for (ResolvedItem r : resolved) {
 			String key = r.lf().getId() + "|" + r.relativePath() + "|" + r.item().getFilename();
-			MediaFile mediaFile = mediaFileByKey.get(key);
-			if (mediaFile == null) {
+			Long mediaFileId = mediaFileIdByKey.get(key);
+			if (mediaFileId == null) {
 				notFound++;
 				continue;
 			}
-			PhotoTag tag = tagByMediaFileId.computeIfAbsent(mediaFile.getId(), id -> {
-				PhotoTag t = new PhotoTag();
-				t.setMediaFile(mediaFile);
-				return t;
-			});
-			if (r.item().getRating() != null) {
-				tag.setRating(r.item().getRating());
-			}
-			if (r.item().getViewCount() != null) {
-				tag.setViewCount(r.item().getViewCount());
-			}
-			tagsToSave.add(tag);
+			Long tagId = tagIdByMediaFileId.get(mediaFileId);
+			TagWrite tw = new TagWrite(mediaFileId, tagId, r.item().getRating(), r.item().getViewCount());
+			if (tagId != null) toUpdate.add(tw);
+			else toInsert.add(tw);
 			updated++;
 		}
 
-		photoTagRepository.saveAll(tagsToSave);
+		// Batch UPDATE existing tags via JDBC — bypasses JPA dirty-check overhead
+		if (!toUpdate.isEmpty()) {
+			jdbcTemplate.batchUpdate(
+				"UPDATE photo_tag SET rating = ?, view_count = ?, date_updated = CURRENT_TIMESTAMP WHERE id = ?",
+				new BatchPreparedStatementSetter() {
+					@Override
+					public void setValues(PreparedStatement ps, int i) throws SQLException {
+						TagWrite tw = toUpdate.get(i);
+						if (tw.rating() != null) ps.setInt(1, tw.rating()); else ps.setNull(1, Types.INTEGER);
+						if (tw.viewCount() != null) ps.setLong(2, tw.viewCount()); else ps.setNull(2, Types.BIGINT);
+						ps.setLong(3, tw.tagId());
+					}
+					@Override
+					public int getBatchSize() { return toUpdate.size(); }
+				}
+			);
+		}
+
+		// Batch INSERT new tags via JDBC — bypasses IDENTITY-generation single-row overhead
+		if (!toInsert.isEmpty()) {
+			jdbcTemplate.batchUpdate(
+				"INSERT INTO photo_tag (media_file_id, view_count, rating, date_created, date_updated)"
+					+ " VALUES (?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+				new BatchPreparedStatementSetter() {
+					@Override
+					public void setValues(PreparedStatement ps, int i) throws SQLException {
+						TagWrite tw = toInsert.get(i);
+						ps.setLong(1, tw.mediaFileId());
+						ps.setLong(2, tw.viewCount() != null ? tw.viewCount() : 0L);
+						if (tw.rating() != null) ps.setInt(3, tw.rating()); else ps.setNull(3, Types.INTEGER);
+					}
+					@Override
+					public int getBatchSize() { return toInsert.size(); }
+				}
+			);
+		}
+
 		return ResponseEntity.ok(Map.of("updated", updated, "notFound", notFound));
 	}
 }
