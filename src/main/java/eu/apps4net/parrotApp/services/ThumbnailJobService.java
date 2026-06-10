@@ -3,11 +3,14 @@ package eu.apps4net.parrotApp.services;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDateTime;
+
 /**
- * Scheduled service that generates folder thumbnails at a fixed interval.
- * Every 10 minutes (measured from the end of the previous run) it asks
+ * Scheduled service that regenerates stale folder thumbnails at a fixed interval.
+ * Every hour (measured from the end of the previous run) it asks
  * {@link ThumbnailService#generateFolderThumbnails()} to process the next batch of
- * folders that have no thumbnail yet, starting from the shallowest nesting level.
+ * folders whose thumbnail is older than 15 days, starting from the shallowest nesting level.
+ * Each run logs the start timestamp and the number of thumbnails regenerated.
  *
  * The task is suppressed while a media library scan is running so that thumbnail
  * I/O does not compete with the scanner. The next scheduled tick after the scan
@@ -34,15 +37,19 @@ public class ThumbnailJobService {
 	}
 
 	/**
-	 * Generates folder thumbnails in a fixed-delay cycle of 10 minutes.
+	 * Regenerates stale folder thumbnails in a fixed-delay cycle of 1 hour.
+	 * A thumbnail is considered stale when it was generated more than 15 days ago.
 	 * If a media library scan is currently running, this execution is skipped entirely
-	 * and the next attempt begins 10 minutes after the skip returns.
+	 * and the next attempt begins 1 hour after the skip returns.
+	 * Logs the run timestamp and the number of thumbnails regenerated.
 	 */
-	@Scheduled(fixedDelay = 600_000)
+	@Scheduled(fixedDelay = 3_600_000)
 	public void generateThumbnails() {
 		if (scanJobService.isScanning()) {
 			return;
 		}
-		thumbnailService.generateFolderThumbnails();
+		LocalDateTime start = LocalDateTime.now();
+		int count = thumbnailService.generateFolderThumbnails();
+		System.out.println("ThumbnailJobService: run at " + start + " — " + count + " folder thumbnail(s) regenerated");
 	}
 }

@@ -33,7 +33,7 @@ public class Thumbnail {
 	private ThumbnailType type;
 
 	/** Timestamp of the last thumbnail generation, set automatically on insert and update. */
-	@Column(name = "date_update", nullable = false)
+	@Column(name = "date_update", nullable = false, columnDefinition = "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP")
 	private LocalDateTime dateUpdate;
 
 	/** Required no-arg constructor for JPA. */

@@ -3,11 +3,13 @@ package eu.apps4net.parrotApp.repositories;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import eu.apps4net.parrotApp.models.Folder;
 import eu.apps4net.parrotApp.models.LibraryFolder;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -44,6 +46,19 @@ public interface FolderRepository extends JpaRepository<Folder, Long> {
 	 */
 	@Query(value = "SELECT * FROM folder WHERE thumbnail_id IS NULL ORDER BY level ASC", nativeQuery = true)
 	List<Folder> findFoldersWithoutThumbnailOrderedByLevel(Pageable pageable);
+
+	/**
+	 * Returns up to {@code pageable.getPageSize()} folders whose thumbnail was generated
+	 * before {@code cutoff}, ordered by nesting level ascending so that shallow folders are
+	 * refreshed before deeper ones.
+	 * The thumbnail entity is eagerly joined so it is accessible without a live session.
+	 *
+	 * @param cutoff  folders with a thumbnail whose {@code dateUpdate} is before this instant qualify
+	 * @param pageable controls the result-set size; page index must be 0
+	 * @return folders with a stale thumbnail, shallowest first
+	 */
+	@Query("SELECT f FROM Folder f JOIN FETCH f.thumbnail t WHERE t.dateUpdate < :cutoff ORDER BY f.level ASC")
+	List<Folder> findFoldersWithOldThumbnailsOrderedByLevel(@Param("cutoff") LocalDateTime cutoff, Pageable pageable);
 
 	/**
 	 * Returns all folders at the given nesting level.
