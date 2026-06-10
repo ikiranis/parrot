@@ -12,7 +12,14 @@ import jakarta.validation.constraints.Size;
  * optional hash, and media kind.
  */
 @Entity(name = "MediaFile")
-@Table(name = "media_file")
+@Table(name = "media_file", indexes = {
+		// Speeds up directory/filename lookups (e.g. bulk tag import), turning what would
+		// otherwise be a full scan of the entire table into a targeted index seek.
+		// filename (not path) is indexed because Derby caps index keys at ~half the page
+		// size; path is VARCHAR(1024) and risks exceeding it, while (library_folder_id,
+		// filename) is selective enough on its own, leaving path as a cheap residual filter.
+		@Index(name = "idx_media_file_folder_filename", columnList = "library_folder_id, filename")
+})
 public class MediaFile {
 
 	/** Auto-generated primary key. */
