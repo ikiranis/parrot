@@ -2,17 +2,14 @@
 import { ref, Ref, onMounted } from "vue"
 import { language } from "@/functions/languageStore.ts"
 import { errorStore } from "@/components/error/errorStore.ts"
-import { scanLibraryFolders, clearLibrary, createPhotoThumbnail } from "@/api/photo.ts"
+import { createPhotoThumbnail } from "@/api/photo.ts"
 import { getFoldersByLevel, getFolderChildren, getFolderPhotos, getThumbnailUrl, createFolderThumbnail } from "@/api/folder.ts"
-import { ScanResult, MediaFile, Folder } from "@/types"
+import { MediaFile, Folder } from "@/types"
 import Error from "@/components/error/Error.vue"
 import Loading from "@/components/utilities/Loading.vue"
 import PhotoDetail from "@/components/PhotoDetail.vue"
 
-const scanning = ref(false)
 const loading = ref(false)
-const clearing = ref(false)
-const scanResult: Ref<ScanResult | null> = ref(null)
 const selectedPhotoId: Ref<number | null> = ref(null)
 
 /** Stack of folders the user has navigated into; empty means root (level 1). */
@@ -125,35 +122,6 @@ const navigateTo = async (stackIndex: number) => {
 	loading.value = false
 }
 
-const onScan = async () => {
-	scanResult.value = null
-	scanning.value = true
-
-	await scanLibraryFolders()
-		.then((result: ScanResult | undefined) => {
-			if (result) scanResult.value = result
-			loadRoot()
-		})
-		.catch(handleError)
-
-	scanning.value = false
-}
-
-const onClearLibrary = async () => {
-	if (!confirm(language.get("Are you sure you want to delete all photos from the library?"))) return
-
-	clearing.value = true
-
-	await clearLibrary()
-		.then(() => {
-			loadRoot()
-			scanResult.value = null
-		})
-		.catch(handleError)
-
-	clearing.value = false
-}
-
 /**
  * For each folder in the list that has no thumbnail, fires a concurrent API request to
  * generate one.  Each folder card shows a spinner while its request is in-flight; once the
@@ -206,39 +174,6 @@ const handleError = (error: unknown) => {
 
 <template>
 	<div class="container-fluid mt-4">
-
-		<!-- Header -->
-		<div class="d-flex justify-content-between align-items-center mb-3">
-			<h4 class="mb-0">{{ language.get("Photos") }}</h4>
-			<button
-				class="btn btn-outline-danger btn-sm"
-				:disabled="clearing"
-				@click="onClearLibrary"
-			>
-				<span v-if="clearing" class="spinner-border spinner-border-sm me-1" role="status"></span>
-				{{ language.get("Clean Library") }}
-			</button>
-		</div>
-
-		<!-- Scan button -->
-		<div class="mb-3">
-			<button class="btn btn-primary btn-sm" :disabled="scanning" @click="onScan">
-				<span v-if="scanning" class="spinner-border spinner-border-sm me-1" role="status"></span>
-				{{ scanning ? language.get("Scanning...") : language.get("Scan Library") }}
-			</button>
-		</div>
-
-		<!-- Scan result -->
-		<div v-if="scanResult" class="alert mb-3" :class="scanResult.errors > 0 ? 'alert-warning' : 'alert-success'">
-			<strong>{{ scanResult.message }}</strong>
-			<ul class="mb-0 mt-1">
-				<li>{{ language.get("Added") }}: {{ scanResult.added }}</li>
-				<li>{{ language.get("Skipped") }}: {{ scanResult.skipped }}</li>
-				<li>{{ language.get("Errors") }}: {{ scanResult.errors }}</li>
-				<li>{{ language.get("Folders scanned") }}: {{ scanResult.foldersScanned }}</li>
-				<li>{{ language.get("Folders skipped") }}: {{ scanResult.foldersSkipped }}</li>
-			</ul>
-		</div>
 
 		<!-- Breadcrumb -->
 		<nav aria-label="breadcrumb" class="mb-3">
