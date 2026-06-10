@@ -249,7 +249,7 @@ const formatDate = (iso: string): string => {
 						<div class="fs-5 fw-bold text-primary">
 							{{ scanState.tagged.toLocaleString() }}
 							<small class="text-muted fs-6">
-								/ {{ (scanState.totalFiles || scanState.added).toLocaleString() }}
+								/ {{ Math.max(scanState.tagged, scanState.totalFiles || scanState.added).toLocaleString() }}
 							</small>
 						</div>
 						<div class="small text-muted">{{ language.get("Tags Read") }}</div>

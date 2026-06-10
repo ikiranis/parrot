@@ -374,6 +374,13 @@ public class MediaScanService {
 				totalToTag += mediaFileRepository.countByKindWithoutPhotoTag(kind);
 			}
 
+			// Keep totalFiles >= tagged: if concurrent Phase 2 added files that were drained
+			// inside the inner loop, tagged can exceed the count observed at iteration start.
+			cumulativeTotalToTag = Math.max(cumulativeTotalToTag, (long) state.getTagged()) + totalToTag;
+			if (cumulativeTotalToTag > 0) {
+				state.setTotalFiles((int) cumulativeTotalToTag);
+			}
+
 			if (totalToTag == 0) {
 				if (fileScanDone.get()) {
 					break;
@@ -390,8 +397,6 @@ public class MediaScanService {
 				continue;
 			}
 
-			cumulativeTotalToTag += totalToTag;
-			state.setTotalFiles((int) cumulativeTotalToTag);
 			if (fileScanDone.get()) {
 				state.setPhase(ScanPhase.TAGGING);
 			}
