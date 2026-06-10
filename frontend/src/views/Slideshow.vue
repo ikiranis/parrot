@@ -8,6 +8,15 @@ import type { MediaFile, PhotoDetail } from "@/types"
 import Error from "@/components/error/Error.vue"
 
 const PREFETCH_MAX = 10
+const MAX_HISTORY = 20
+
+/**
+ * Tracks the off-screen {@link HTMLImageElement} instances created to warm the
+ * browser cache for upcoming photos. Holding an explicit reference is what lets
+ * us release the decoded bitmap once the photo has been shown or evicted —
+ * without this, fire-and-forget images accumulate and inflate memory usage.
+ */
+const preloadedImages = new Map<number, HTMLImageElement>()
 
 const navigating = ref(false)
 const currentPhoto: Ref<MediaFile | null> = ref(null)
@@ -83,10 +92,52 @@ onUnmounted(() => {
 	window.removeEventListener('keyup', handleKeyup)
 	document.removeEventListener('fullscreenchange', handleFullscreenChange)
 	stopAutoPlay()
+	prefetchQueue.value = []
+	history.value = []
+	currentPhoto.value = null
+	releaseAllImages()
 })
 
 const handleFullscreenChange = () => {
 	isFullscreen.value = !!document.fullscreenElement
+}
+
+/**
+ * Warms the browser cache for a single photo, keeping a tracked reference so the
+ * decoded image can later be released. No-op if the photo is already preloaded.
+ *
+ * @param photo the media file to preload
+ */
+const preloadImage = (photo: MediaFile): void => {
+	if (preloadedImages.has(photo.id)) return
+	const img = new Image()
+	img.src = getPhotoImageUrl(photo.id)
+	preloadedImages.set(photo.id, img)
+}
+
+/**
+ * Releases a previously preloaded image, clearing its source so the browser can
+ * reclaim the decoded bitmap, and drops the tracked reference. Safe to call for
+ * an id that was never preloaded.
+ *
+ * @param id the media file id whose preloaded image should be released
+ */
+const releaseImage = (id: number): void => {
+	const img = preloadedImages.get(id)
+	if (!img) return
+	img.src = ''
+	preloadedImages.delete(id)
+}
+
+/**
+ * Releases every tracked preloaded image. Used on teardown to ensure no decoded
+ * bitmaps outlive the component.
+ */
+const releaseAllImages = (): void => {
+	preloadedImages.forEach((img) => {
+		img.src = ''
+	})
+	preloadedImages.clear()
 }
 
 const preloadNext = async () => {
@@ -97,8 +148,7 @@ const preloadNext = async () => {
 		const photos = await getRandomPhotos(slots)
 		for (const photo of photos) {
 			prefetchQueue.value.push(photo)
-			const img = new Image()
-			img.src = getPhotoImageUrl(photo.id)
+			preloadImage(photo)
 		}
 	} catch {
 		// best-effort — silently ignore preload errors
@@ -132,8 +182,7 @@ const navigateForward = async () => {
 			photo = photos[0] ?? null
 			for (const p of photos.slice(1)) {
 				prefetchQueue.value.push(p)
-				const img = new Image()
-				img.src = getPhotoImageUrl(p.id)
+				preloadImage(p)
 			}
 		} catch (error: unknown) {
 			const err = error as { response?: { data?: { message?: string; status?: number } }; message?: string }
@@ -142,7 +191,16 @@ const navigateForward = async () => {
 	}
 
 	if (photo) {
+		// The visible <img> now owns this photo's decode; drop the preload copy
+		// so we never hold the same bitmap twice.
+		releaseImage(photo.id)
 		history.value.push(photo)
+		// Cap history so it never pins more than the most recent MAX_HISTORY
+		// photos (and their cached images) for the life of the session.
+		if (history.value.length > MAX_HISTORY) {
+			const evicted = history.value.shift()!
+			releaseImage(evicted.id)
+		}
 		historyIndex.value = history.value.length - 1
 		currentPhoto.value = photo
 	}
