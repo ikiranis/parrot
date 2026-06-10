@@ -156,7 +156,9 @@ public class FolderService {
 
 		String newHash = sha256(files.size() + ":" + totalSize);
 		String relativePath = root.relativize(dirPath).toString();
-		int level = (int) root.relativize(dirPath).getNameCount();
+		// An empty relative path means dirPath is the library root itself. Java reports a name
+		// count of 1 for the empty path, so guard against that and assign the root level 0.
+		int level = relativePath.isEmpty() ? 0 : root.relativize(dirPath).getNameCount();
 
 		Optional<Folder> existing = folderRepository.findByLibraryFolderAndPath(libraryFolder, relativePath);
 		if (existing.isPresent()) {

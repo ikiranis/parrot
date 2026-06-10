@@ -9,8 +9,6 @@ import Error from "@/components/error/Error.vue"
 import Loading from "@/components/utilities/Loading.vue"
 import PhotoDetail from "@/components/PhotoDetail.vue"
 
-type ViewMode = "folders" | "photos"
-
 const scanning = ref(false)
 const loading = ref(false)
 const clearing = ref(false)
@@ -20,7 +18,6 @@ const selectedPhotoId: Ref<number | null> = ref(null)
 /** Stack of folders the user has navigated into; empty means root (level 1). */
 const folderStack: Ref<Folder[]> = ref([])
 
-const viewMode: Ref<ViewMode> = ref("folders")
 const displayFolders: Ref<Folder[]> = ref([])
 const displayPhotos: Ref<MediaFile[]> = ref([])
 
@@ -40,7 +37,24 @@ const folderName = (folder: Folder): string => {
 	return parts[parts.length - 1]
 }
 
-/** Loads the level-1 folders (library root). */
+/**
+ * Loads children folders and direct photos for the given folder in parallel,
+ * then triggers thumbnail generation for any items missing one.
+ *
+ * @param folder the folder whose contents to load
+ */
+const loadFolderContent = async (folder: Folder) => {
+	const [children, photos] = await Promise.all([
+		getFolderChildren(folder.id).catch((e: unknown) => { handleError(e); return [] as Folder[] }),
+		getFolderPhotos(folder.id).catch((e: unknown) => { handleError(e); return [] as MediaFile[] })
+	])
+	displayFolders.value = children
+	displayPhotos.value = photos
+	generateMissingFolderThumbnails(children)
+	generateMissingThumbnails(photos)
+}
+
+/** Loads the top-level folders and the photos sitting directly in the library root. */
 const loadRoot = async () => {
 	loading.value = true
 	folderStack.value = []
@@ -49,46 +63,43 @@ const loadRoot = async () => {
 	loadingThumbnails.value = new Set()
 	loadingFolderThumbnails.value = new Set()
 
-	await getFoldersByLevel(1)
-		.then((data: Folder[]) => {
-			displayFolders.value = data
-			viewMode.value = "folders"
-			generateMissingFolderThumbnails(data)
-		})
-		.catch(handleError)
+	// The library root directory itself is persisted as a folder with an empty path.
+	// Depending on how the scan computes nesting levels it can land at level 0 or level 1,
+	// so gather candidates from both. Folders with an empty path are root containers: their
+	// direct photos belong inline at the top level, never hidden behind a folder card.
+	const [level0, level1] = await Promise.all([
+		getFoldersByLevel(0).catch(() => [] as Folder[]),
+		getFoldersByLevel(1).catch((e: unknown) => { handleError(e); return [] as Folder[] })
+	])
+
+	const rootContainers = [...level0, ...level1].filter(f => f.path === "")
+	const folders = level1.filter(f => f.path !== "")
+
+	displayFolders.value = folders
+	generateMissingFolderThumbnails(folders)
+
+	const photoArrays = await Promise.all(
+		rootContainers.map(f => getFolderPhotos(f.id).catch(() => [] as MediaFile[]))
+	)
+	displayPhotos.value = photoArrays.flat()
+	generateMissingThumbnails(displayPhotos.value)
 
 	loading.value = false
 }
 
 /**
  * Navigates into a folder: pushes it onto the breadcrumb stack, then loads its
- * children.  If the folder has no children, its photos are loaded instead.
+ * children and direct photos in parallel.
  */
 const navigateInto = async (folder: Folder) => {
 	loading.value = true
 	folderStack.value = [...folderStack.value, folder]
 	displayFolders.value = []
 	displayPhotos.value = []
-
+	loadingThumbnails.value = new Set()
 	loadingFolderThumbnails.value = new Set()
 
-	await getFolderChildren(folder.id)
-		.then(async (children: Folder[]) => {
-			if (children.length > 0) {
-				displayFolders.value = children
-				viewMode.value = "folders"
-				generateMissingFolderThumbnails(children)
-			} else {
-				await getFolderPhotos(folder.id)
-					.then((photos: MediaFile[]) => {
-						displayPhotos.value = photos
-						viewMode.value = "photos"
-						generateMissingThumbnails(photos)
-					})
-					.catch(handleError)
-			}
-		})
-		.catch(handleError)
+	await loadFolderContent(folder)
 
 	loading.value = false
 }
@@ -109,23 +120,7 @@ const navigateTo = async (stackIndex: number) => {
 	loadingThumbnails.value = new Set()
 	loadingFolderThumbnails.value = new Set()
 
-	await getFolderChildren(target.id)
-		.then(async (children: Folder[]) => {
-			if (children.length > 0) {
-				displayFolders.value = children
-				viewMode.value = "folders"
-				generateMissingFolderThumbnails(children)
-			} else {
-				await getFolderPhotos(target.id)
-					.then((photos: MediaFile[]) => {
-						displayPhotos.value = photos
-						viewMode.value = "photos"
-						generateMissingThumbnails(photos)
-					})
-					.catch(handleError)
-			}
-		})
-		.catch(handleError)
+	await loadFolderContent(target)
 
 	loading.value = false
 }
@@ -275,53 +270,17 @@ const handleError = (error: unknown) => {
 			<Loading />
 		</div>
 
-		<!-- Folder grid -->
-		<div v-else-if="viewMode === 'folders'">
-			<div v-if="displayFolders.length === 0 && folderStack.length === 0" class="text-muted">
+		<!-- Unified grid: folders first, then photos -->
+		<div v-else>
+			<div v-if="displayFolders.length === 0 && displayPhotos.length === 0 && folderStack.length === 0" class="text-muted">
 				{{ language.get("No folders found. Scan a folder to import photos.") }}
 			</div>
-			<div class="row row-cols-2 row-cols-sm-3 row-cols-md-4 row-cols-lg-5 row-cols-xl-6 g-3">
-				<!-- Go-up card -->
-				<div v-if="folderStack.length > 0" class="col">
-					<div class="media-card up-card" @click="navigateTo(folderStack.length - 2)">
-						<div class="media-thumb">
-							<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" fill="#6c757d" viewBox="0 0 16 16">
-								<path fill-rule="evenodd" d="M8 15a.5.5 0 0 0 .5-.5V2.707l3.146 3.147a.5.5 0 0 0 .708-.708l-4-4a.5.5 0 0 0-.708 0l-4 4a.5.5 0 1 0 .708.708L7.5 2.707V14.5a.5.5 0 0 0 .5.5z"/>
-							</svg>
-						</div>
-						<div class="media-name">{{ language.get("..") }}</div>
-					</div>
+			<div v-else>
+				<div v-if="displayPhotos.length > 0" class="text-muted small mb-2">
+					{{ displayPhotos.length }} {{ language.get("photos") }}
 				</div>
-				<div v-for="folder in displayFolders" :key="folder.id" class="col">
-					<div class="media-card folder-card" @click="navigateInto(folder)" :title="folder.path">
-						<div class="media-thumb">
-							<div v-if="loadingFolderThumbnails.has(folder.id)" class="thumb-generating">
-								<span class="spinner-border spinner-border-sm text-secondary" role="status"></span>
-							</div>
-							<img
-								v-else-if="folder.thumbnailId"
-								:src="getThumbnailUrl(folder.thumbnailId)"
-								:alt="folderName(folder)"
-								class="thumb-img"
-							/>
-							<svg v-else xmlns="http://www.w3.org/2000/svg" width="48" height="48" fill="#a08a50" viewBox="0 0 16 16">
-								<path d="M9.828 3h3.982a2 2 0 0 1 1.992 2.181l-.637 7A2 2 0 0 1 13.174 14H2.826a2 2 0 0 1-1.991-1.819l-.637-7a1.99 1.99 0 0 1 .342-1.31L.5 3a2 2 0 0 1 2-2h3.672a2 2 0 0 1 1.414.586l.828.828A2 2 0 0 0 9.828 3zm-8.322.12C1.72 3.042 1.95 3 2.19 3h5.396l-.707-.707A1 1 0 0 0 6.172 2H2.5a1 1 0 0 0-1 .981l.006.139z"/>
-							</svg>
-						</div>
-						<div class="media-name">{{ folderName(folder) }}</div>
-					</div>
-				</div>
-			</div>
-		</div>
-
-		<!-- Photo grid -->
-		<div v-else-if="viewMode === 'photos'">
-			<div v-if="displayPhotos.length === 0" class="text-muted">
-				{{ language.get("No photos found in this folder.") }}
-			</div>
-			<div>
-				<div v-if="displayPhotos.length > 0" class="text-muted small mb-2">{{ displayPhotos.length }} {{ language.get("photos") }}</div>
 				<div class="row row-cols-2 row-cols-sm-3 row-cols-md-4 row-cols-lg-5 row-cols-xl-6 g-3">
+
 					<!-- Go-up card -->
 					<div v-if="folderStack.length > 0" class="col">
 						<div class="media-card up-card" @click="navigateTo(folderStack.length - 2)">
@@ -333,7 +292,36 @@ const handleError = (error: unknown) => {
 							<div class="media-name">{{ language.get("..") }}</div>
 						</div>
 					</div>
-					<div v-for="photo in displayPhotos" :key="photo.id" class="col">
+
+					<!-- Folder cards -->
+					<div v-for="folder in displayFolders" :key="'f-' + folder.id" class="col">
+						<div class="media-card folder-card" @click="navigateInto(folder)" :title="folder.path">
+							<div class="media-thumb">
+								<div v-if="loadingFolderThumbnails.has(folder.id)" class="thumb-generating">
+									<span class="spinner-border spinner-border-sm text-secondary" role="status"></span>
+								</div>
+								<img
+									v-else-if="folder.thumbnailId"
+									:src="getThumbnailUrl(folder.thumbnailId)"
+									:alt="folderName(folder)"
+									class="thumb-img"
+								/>
+								<svg v-else xmlns="http://www.w3.org/2000/svg" width="48" height="48" fill="#a08a50" viewBox="0 0 16 16">
+									<path d="M9.828 3h3.982a2 2 0 0 1 1.992 2.181l-.637 7A2 2 0 0 1 13.174 14H2.826a2 2 0 0 1-1.991-1.819l-.637-7a1.99 1.99 0 0 1 .342-1.31L.5 3a2 2 0 0 1 2-2h3.672a2 2 0 0 1 1.414.586l.828.828A2 2 0 0 0 9.828 3zm-8.322.12C1.72 3.042 1.95 3 2.19 3h5.396l-.707-.707A1 1 0 0 0 6.172 2H2.5a1 1 0 0 0-1 .981l.006.139z"/>
+								</svg>
+								<!-- Folder type badge -->
+								<div class="type-badge">
+									<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="white" viewBox="0 0 16 16">
+										<path d="M9.828 3h3.982a2 2 0 0 1 1.992 2.181l-.637 7A2 2 0 0 1 13.174 14H2.826a2 2 0 0 1-1.991-1.819l-.637-7a1.99 1.99 0 0 1 .342-1.31L.5 3a2 2 0 0 1 2-2h3.672a2 2 0 0 1 1.414.586l.828.828A2 2 0 0 0 9.828 3zm-8.322.12C1.72 3.042 1.95 3 2.19 3h5.396l-.707-.707A1 1 0 0 0 6.172 2H2.5a1 1 0 0 0-1 .981l.006.139z"/>
+									</svg>
+								</div>
+							</div>
+							<div class="media-name">{{ folderName(folder) }}</div>
+						</div>
+					</div>
+
+					<!-- Photo cards -->
+					<div v-for="photo in displayPhotos" :key="'p-' + photo.id" class="col">
 						<div class="media-card photo-card" @click="selectedPhotoId = photo.id" :title="photo.filename">
 							<div class="media-thumb">
 								<div v-if="loadingThumbnails.has(photo.id)" class="thumb-generating">
@@ -349,10 +337,18 @@ const handleError = (error: unknown) => {
 									<path d="M6.502 7a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3z"/>
 									<path d="M14 14a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V2a2 2 0 0 1 2-2h5.5L14 4.5V14zM4 1a1 1 0 0 0-1 1v10l2.224-2.224a.5.5 0 0 1 .61-.075L8 11l2.157-3.02a.5.5 0 0 1 .76-.063L13 10V4.5h-2A1.5 1.5 0 0 1 9.5 3V1H4z"/>
 								</svg>
+								<!-- Photo type badge -->
+								<div class="type-badge">
+									<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="white" viewBox="0 0 16 16">
+										<path d="M6.502 7a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3z"/>
+										<path d="M14 14a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V2a2 2 0 0 1 2-2h5.5L14 4.5V14zM4 1a1 1 0 0 0-1 1v10l2.224-2.224a.5.5 0 0 1 .61-.075L8 11l2.157-3.02a.5.5 0 0 1 .76-.063L13 10V4.5h-2A1.5 1.5 0 0 1 9.5 3V1H4z"/>
+									</svg>
+								</div>
 							</div>
 							<div class="media-name">{{ photo.filename }}</div>
 						</div>
 					</div>
+
 				</div>
 			</div>
 		</div>
@@ -383,6 +379,7 @@ const handleError = (error: unknown) => {
 		display: flex;
 		align-items: center;
 		justify-content: center;
+		position: relative;
 	}
 
 	.folder-card .media-thumb {
@@ -424,5 +421,19 @@ const handleError = (error: unknown) => {
 		justify-content: center;
 		width: 100%;
 		height: 100%;
+	}
+
+	.type-badge {
+		position: absolute;
+		top: 6px;
+		right: 6px;
+		width: 22px;
+		height: 22px;
+		border-radius: 4px;
+		background-color: rgba(0, 0, 0, 0.45);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		z-index: 1;
 	}
 </style>
