@@ -88,14 +88,24 @@ public interface MediaFileRepository extends JpaRepository<MediaFile, Long> {
 	/**
 	 * Counts the media files of the given kind.
 	 *
-	 * Backs the random-photo selection: a cheap aggregate count lets the caller
-	 * pick a random page to fetch, avoiding a full-table {@code ORDER BY RANDOM()}
-	 * scan-and-sort on every request.
-	 *
 	 * @param kind the media kind to count
 	 * @return the total number of records of that kind
 	 */
 	long countByKind(MediaKind kind);
+
+	/**
+	 * Returns only the IDs of all media files of the given kind.
+	 *
+	 * Used for random selection: loading IDs alone is cheap regardless of library size,
+	 * allowing the caller to pick a random subset and then fetch only those records,
+	 * which avoids both a full-table {@code ORDER BY RANDOM()} scan and the page-clustering
+	 * problem of picking a single random page.
+	 *
+	 * @param kind the media kind to filter by
+	 * @return list of all matching record IDs
+	 */
+	@Query("SELECT mf.id FROM MediaFile mf WHERE mf.kind = ?1")
+	List<Long> findIdsByKind(MediaKind kind);
 
 	/**
 	 * Deletes all media files of the given kind.

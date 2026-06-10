@@ -142,12 +142,11 @@ public class PhotoController {
 	 * Returns up to {@code count} randomly selected photos, generating any missing thumbnails
 	 * before returning so that callers always receive a populated {@code thumbnailId}.
 	 *
-	 * Selection is done by counting the photos once (a cheap aggregate) and
-	 * fetching a single random page of that size. This deliberately avoids a
-	 * {@code ORDER BY RANDOM()} query, which forces the database to scan and sort
-	 * the entire table on every call and churns large amounts of heap when the
-	 * slideshow requests batches continuously. The returned page is shuffled so
-	 * the order within the batch is not predictable.
+	 * Selection loads all photo IDs (a lightweight query) and then picks {@code count} of them
+	 * via a partial Fisher-Yates shuffle. This guarantees that every photo in the library is
+	 * equally likely to appear in any given batch, regardless of its position in the table.
+	 * It avoids both a full-table {@code ORDER BY RANDOM()} scan and the page-clustering problem
+	 * where a single random page can only ever return records from the same contiguous ID range.
 	 *
 	 * @param count number of photos to return (1–50, default 10)
 	 * @return 200 with a {@link List} of {@link MediaFile} records, or 204 No Content if the library is empty
@@ -157,16 +156,19 @@ public class PhotoController {
 	public ResponseEntity<List<MediaFile>> getRandomPhotos(
 			@RequestParam(defaultValue = "10") int count) {
 		int size = Math.min(Math.max(count, 1), 50);
-		long total = mediaFileRepository.countByKind(MediaKind.IMAGE);
-		if (total == 0) {
+		List<Long> allIds = mediaFileRepository.findIdsByKind(MediaKind.IMAGE);
+		if (allIds.isEmpty()) {
 			return ResponseEntity.noContent().build();
 		}
-		int totalPages = (int) ((total + size - 1) / size);
-		int randomPage = ThreadLocalRandom.current().nextInt(totalPages);
-		List<MediaFile> photos = new ArrayList<>(mediaFileRepository.findByKind(
-				MediaKind.IMAGE,
-				PageRequest.of(randomPage, size, Sort.by("id"))).getContent());
-		Collections.shuffle(photos);
+		int pickCount = Math.min(size, allIds.size());
+		ThreadLocalRandom rng = ThreadLocalRandom.current();
+		for (int i = 0; i < pickCount; i++) {
+			int j = rng.nextInt(i, allIds.size());
+			Long tmp = allIds.get(i);
+			allIds.set(i, allIds.get(j));
+			allIds.set(j, tmp);
+		}
+		List<MediaFile> photos = new ArrayList<>(mediaFileRepository.findAllById(allIds.subList(0, pickCount)));
 		ensureThumbnails(photos);
 		return ResponseEntity.ok(photos);
 	}
