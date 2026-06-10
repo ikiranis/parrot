@@ -244,8 +244,10 @@ const handleError = (error: unknown) => {
 		<nav aria-label="breadcrumb" class="mb-3">
 			<ol class="breadcrumb mb-0">
 				<li class="breadcrumb-item">
-					<a href="#" class="text-decoration-none" @click.prevent="navigateTo(-1)">
-						{{ language.get("Home") }}
+					<a href="#" class="text-decoration-none breadcrumb-home" @click.prevent="navigateTo(-1)" :title="language.get('Home')">
+						<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+							<path d="M8.354 1.146a.5.5 0 0 0-.708 0l-6 6A.5.5 0 0 0 1.5 8v6a.5.5 0 0 0 .5.5h3.5a.5.5 0 0 0 .5-.5v-3h4v3a.5.5 0 0 0 .5.5H14a.5.5 0 0 0 .5-.5V8a.5.5 0 0 0-.146-.354L13 6.293V2.5a.5.5 0 0 0-.5-.5h-1a.5.5 0 0 0-.5.5v1.293L8.354 1.146z"/>
+						</svg>
 					</a>
 				</li>
 				<li
@@ -426,6 +428,11 @@ const handleError = (error: unknown) => {
 		justify-content: center;
 		width: 100%;
 		height: 100%;
+	}
+
+	.breadcrumb-home {
+		display: inline-flex;
+		align-items: center;
 	}
 
 	.type-badge {
