@@ -70,15 +70,16 @@ public interface MediaFileRepository extends JpaRepository<MediaFile, Long> {
 	Page<MediaFile> findByKind(MediaKind kind, Pageable pageable);
 
 	/**
-	 * Returns up to {@code count} randomly selected media files of the given kind in a single query.
-	 * Uses Derby's RANDOM() per-row to shuffle, then limits via the pageable page size.
+	 * Counts the media files of the given kind.
 	 *
-	 * @param kind     the media kind string (e.g. {@code "IMAGE"})
-	 * @param pageable page size controls how many rows are returned; page index must be 0
-	 * @return list of randomly selected {@link MediaFile} records, empty if none exist
+	 * Backs the random-photo selection: a cheap aggregate count lets the caller
+	 * pick a random page to fetch, avoiding a full-table {@code ORDER BY RANDOM()}
+	 * scan-and-sort on every request.
+	 *
+	 * @param kind the media kind to count
+	 * @return the total number of records of that kind
 	 */
-	@Query(value = "SELECT * FROM media_file WHERE kind = ?1 ORDER BY RANDOM()", nativeQuery = true)
-	List<MediaFile> findRandomPhotos(String kind, Pageable pageable);
+	long countByKind(MediaKind kind);
 
 	/**
 	 * Deletes all media files of the given kind.

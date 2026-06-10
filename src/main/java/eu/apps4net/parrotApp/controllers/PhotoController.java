@@ -31,9 +31,12 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ThreadLocalRandom;
 
 /**
  * REST controller for photo media file operations.
@@ -124,7 +127,14 @@ public class PhotoController {
 	}
 
 	/**
-	 * Returns up to {@code count} randomly selected photos in a single query.
+	 * Returns up to {@code count} randomly selected photos.
+	 *
+	 * Selection is done by counting the photos once (a cheap aggregate) and
+	 * fetching a single random page of that size. This deliberately avoids a
+	 * {@code ORDER BY RANDOM()} query, which forces the database to scan and sort
+	 * the entire table on every call and churns large amounts of heap when the
+	 * slideshow requests batches continuously. The returned page is shuffled so
+	 * the order within the batch is not predictable.
 	 *
 	 * @param count number of photos to return (1–50, default 10)
 	 * @return 200 with a {@link List} of {@link MediaFile} records, or 204 No Content if the library is empty
@@ -132,12 +142,18 @@ public class PhotoController {
 	@GetMapping("random")
 	public ResponseEntity<List<MediaFile>> getRandomPhotos(
 			@RequestParam(defaultValue = "10") int count) {
-		List<MediaFile> photos = mediaFileRepository.findRandomPhotos(
-				MediaKind.IMAGE.name(),
-				PageRequest.of(0, Math.min(Math.max(count, 1), 50)));
-		return photos.isEmpty()
-				? ResponseEntity.noContent().build()
-				: ResponseEntity.ok(photos);
+		int size = Math.min(Math.max(count, 1), 50);
+		long total = mediaFileRepository.countByKind(MediaKind.IMAGE);
+		if (total == 0) {
+			return ResponseEntity.noContent().build();
+		}
+		int totalPages = (int) ((total + size - 1) / size);
+		int randomPage = ThreadLocalRandom.current().nextInt(totalPages);
+		List<MediaFile> photos = new ArrayList<>(mediaFileRepository.findByKind(
+				MediaKind.IMAGE,
+				PageRequest.of(randomPage, size, Sort.by("id"))).getContent());
+		Collections.shuffle(photos);
+		return ResponseEntity.ok(photos);
 	}
 
 	/**
