@@ -382,6 +382,11 @@ const handleError = (error: unknown) => {
 		position: relative;
 	}
 
+	.folder-card {
+		border-color: #868e96;
+		border-width: 2px;
+	}
+
 	.folder-card .media-thumb {
 		background-color: #fdf6e3;
 	}
