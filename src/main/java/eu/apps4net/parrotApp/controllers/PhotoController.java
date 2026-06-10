@@ -33,6 +33,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -370,41 +371,106 @@ public class PhotoController {
 	 * @param items list of {@link TagExportItemDTO} entries to import
 	 * @return a map with keys {@code updated} (matched and saved) and {@code notFound} (unmatched entries)
 	 */
+	/**
+	 * Imports tag data from a JSON payload and updates the matching records in the database.
+	 * Each item is matched by its full absolute path and filename. The path is resolved against
+	 * the configured library folders to find the relative path stored in the database.
+	 * A {@link PhotoTag} is created if none exists.
+	 * Only {@code rating} and {@code viewCount} fields are updated; all other metadata is preserved.
+	 *
+	 * Library folders are loaded once; MediaFiles are fetched per unique directory rather than per
+	 * item; existing PhotoTags are batch-loaded in a single query; saves are flushed in one
+	 * {@code saveAll} call. This keeps the DB round-trip count proportional to the number of
+	 * distinct directories, not the number of items.
+	 *
+	 * @param items list of {@link TagExportItemDTO} entries to import
+	 * @return a map with keys {@code updated} (matched and saved) and {@code notFound} (unmatched entries)
+	 */
 	@PostMapping("tags/import")
 	@Transactional
 	public ResponseEntity<Map<String, Integer>> importTags(@RequestBody List<TagExportItemDTO> items) {
 		int updated = 0;
 		int notFound = 0;
+
+		// Load all library folders once and sort longest-first so the first prefix match wins
+		List<LibraryFolder> libraryFolders = libraryFolderService.getAll();
+		libraryFolders.sort((a, b) -> Integer.compare(b.getPath().length(), a.getPath().length()));
+
+		// Resolve each item to its library folder and relative directory path in-memory
+		record ResolvedItem(TagExportItemDTO item, LibraryFolder lf, String relativePath) {}
+		List<ResolvedItem> resolved = new ArrayList<>();
 		for (TagExportItemDTO item : items) {
-			Optional<LibraryFolder> lfOpt = libraryFolderService.findMatchingForPath(item.getPath());
-			if (lfOpt.isEmpty()) {
+			LibraryFolder lf = null;
+			for (LibraryFolder candidate : libraryFolders) {
+				if (item.getPath().equals(candidate.getPath()) || item.getPath().startsWith(candidate.getPath() + "/")) {
+					lf = candidate;
+					break;
+				}
+			}
+			if (lf == null) {
 				notFound++;
 				continue;
 			}
-			LibraryFolder lf = lfOpt.get();
 			String relativePath = Paths.get(lf.getPath()).relativize(Paths.get(item.getPath())).toString();
-			Optional<MediaFile> mediaFileOpt = mediaFileRepository
-					.findByLibraryFolderAndPathAndFilename(lf, relativePath, item.getFilename());
-			if (mediaFileOpt.isEmpty()) {
+			resolved.add(new ResolvedItem(item, lf, relativePath));
+		}
+
+		if (resolved.isEmpty()) {
+			return ResponseEntity.ok(Map.of("updated", updated, "notFound", notFound));
+		}
+
+		// Group resolved items by (lfId|relativePath) to issue one DB query per unique directory
+		Map<String, List<ResolvedItem>> byDir = new HashMap<>();
+		for (ResolvedItem r : resolved) {
+			byDir.computeIfAbsent(r.lf().getId() + "|" + r.relativePath(), k -> new ArrayList<>()).add(r);
+		}
+
+		// Batch-load MediaFiles directory by directory and index them by a composite key
+		Map<String, MediaFile> mediaFileByKey = new HashMap<>();
+		List<MediaFile> allMatchedFiles = new ArrayList<>();
+		for (Map.Entry<String, List<ResolvedItem>> entry : byDir.entrySet()) {
+			ResolvedItem sample = entry.getValue().get(0);
+			List<MediaFile> filesInDir = mediaFileRepository.findByLibraryFolderAndPath(
+					sample.lf(), sample.relativePath());
+			for (MediaFile mf : filesInDir) {
+				mediaFileByKey.put(sample.lf().getId() + "|" + sample.relativePath() + "|" + mf.getFilename(), mf);
+			}
+			allMatchedFiles.addAll(filesInDir);
+		}
+
+		// Batch-load all existing PhotoTags for the matched media files in one query
+		Map<Long, PhotoTag> tagByMediaFileId = new HashMap<>();
+		if (!allMatchedFiles.isEmpty()) {
+			for (PhotoTag tag : photoTagRepository.findAllByMediaFileIn(allMatchedFiles)) {
+				tagByMediaFileId.put(tag.getMediaFile().getId(), tag);
+			}
+		}
+
+		// Build or update tags in memory, then persist in a single saveAll call
+		List<PhotoTag> tagsToSave = new ArrayList<>();
+		for (ResolvedItem r : resolved) {
+			String key = r.lf().getId() + "|" + r.relativePath() + "|" + r.item().getFilename();
+			MediaFile mediaFile = mediaFileByKey.get(key);
+			if (mediaFile == null) {
 				notFound++;
 				continue;
 			}
-			MediaFile mediaFile = mediaFileOpt.get();
-			PhotoTag tag = photoTagRepository.findByMediaFile(mediaFile)
-					.orElseGet(() -> {
-						PhotoTag t = new PhotoTag();
-						t.setMediaFile(mediaFile);
-						return t;
-					});
-			if (item.getRating() != null) {
-				tag.setRating(item.getRating());
+			PhotoTag tag = tagByMediaFileId.computeIfAbsent(mediaFile.getId(), id -> {
+				PhotoTag t = new PhotoTag();
+				t.setMediaFile(mediaFile);
+				return t;
+			});
+			if (r.item().getRating() != null) {
+				tag.setRating(r.item().getRating());
 			}
-			if (item.getViewCount() != null) {
-				tag.setViewCount(item.getViewCount());
+			if (r.item().getViewCount() != null) {
+				tag.setViewCount(r.item().getViewCount());
 			}
-			photoTagRepository.save(tag);
+			tagsToSave.add(tag);
 			updated++;
 		}
+
+		photoTagRepository.saveAll(tagsToSave);
 		return ResponseEntity.ok(Map.of("updated", updated, "notFound", notFound));
 	}
 }

@@ -10,11 +10,17 @@ import Error from "@/components/error/Error.vue"
 import Loading from "@/components/utilities/Loading.vue"
 import ScanProgress from "@/components/scan/ScanProgress.vue"
 
+const IMPORT_CHUNK_SIZE = 500
+
 const loading = ref(false)
 const folders: Ref<LibraryFolder[]> = ref([])
 const importFileInput = ref<HTMLInputElement | null>(null)
 const exportLoading = ref(false)
 const importLoading = ref(false)
+/** Progress percentage (0–100) while an import is running; null otherwise. */
+const importProgress = ref<number | null>(null)
+/** Running totals shown below the progress bar. */
+const importTotals = ref({ processed: 0, total: 0, updated: 0, notFound: 0 })
 
 onMounted(() => {
 	loadFolders()
@@ -84,16 +90,31 @@ const onFileSelected = async (event: Event) => {
 	const file = (event.target as HTMLInputElement).files?.[0]
 	if (!file) return
 	importLoading.value = true
+	importProgress.value = 0
+	importTotals.value = { processed: 0, total: 0, updated: 0, notFound: 0 }
 	try {
 		const text = await file.text()
 		const items: TagExportItem[] = JSON.parse(text)
-		const result = await importTagData(items)
-		alert(`${language.get("Import complete")}: ${result.updated} ${language.get("updated")}, ${result.notFound} ${language.get("not found")}`)
+		const total = items.length
+		importTotals.value.total = total
+		let totalUpdated = 0
+		let totalNotFound = 0
+		for (let i = 0; i < total; i += IMPORT_CHUNK_SIZE) {
+			const chunk = items.slice(i, i + IMPORT_CHUNK_SIZE)
+			const result = await importTagData(chunk)
+			totalUpdated += result.updated
+			totalNotFound += result.notFound
+			const processed = Math.min(i + IMPORT_CHUNK_SIZE, total)
+			importTotals.value = { processed, total, updated: totalUpdated, notFound: totalNotFound }
+			importProgress.value = Math.round(processed / total * 100)
+		}
+		alert(`${language.get("Import complete")}: ${totalUpdated} ${language.get("updated")}, ${totalNotFound} ${language.get("not found")}`)
 	} catch (error: unknown) {
 		const err = error as { response?: { data?: { message?: string; status?: number } }; message?: string }
 		errorStore.set(true, err.response?.data?.message ?? err.message ?? "", err.response?.data?.status ?? 500)
 	} finally {
 		importLoading.value = false
+		importProgress.value = null
 		;(event.target as HTMLInputElement).value = ''
 	}
 }
@@ -127,6 +148,29 @@ const onFileSelected = async (event: Event) => {
 					{{ language.get("Add Folder") }}
 				</button>
 			</div>
+		</div>
+
+		<!-- Import progress bar -->
+		<div v-if="importProgress !== null" class="mb-3">
+			<div class="d-flex align-items-center gap-2 mb-1">
+				<div class="progress flex-grow-1" style="height: 8px;">
+					<div
+						class="progress-bar progress-bar-striped progress-bar-animated"
+						role="progressbar"
+						:style="{ width: importProgress + '%' }"
+						:aria-valuenow="importProgress"
+						aria-valuemin="0"
+						aria-valuemax="100"
+					></div>
+				</div>
+				<small class="text-muted text-nowrap">{{ importProgress }}%</small>
+			</div>
+			<small class="text-muted">
+				{{ importTotals.processed.toLocaleString() }} / {{ importTotals.total.toLocaleString() }}
+				{{ language.get("items") }}
+				&mdash; {{ importTotals.updated.toLocaleString() }} {{ language.get("updated") }},
+				{{ importTotals.notFound.toLocaleString() }} {{ language.get("not found") }}
+			</small>
 		</div>
 
 		<div v-if="loading" class="row">

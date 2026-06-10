@@ -57,4 +57,13 @@ public interface PhotoTagRepository extends JpaRepository<PhotoTag, Long> {
 			@Param("libraryFolder") LibraryFolder libraryFolder,
 			@Param("path") String path,
 			@Param("pathPrefix") String pathPrefix);
+
+	/**
+	 * Returns all photo tags whose media file is in the given collection.
+	 * Used to batch-load existing tags during bulk import, avoiding one query per file.
+	 *
+	 * @param mediaFiles the media files whose tags should be fetched
+	 * @return list of matching {@link PhotoTag} records
+	 */
+	List<PhotoTag> findAllByMediaFileIn(java.util.Collection<MediaFile> mediaFiles);
 }
