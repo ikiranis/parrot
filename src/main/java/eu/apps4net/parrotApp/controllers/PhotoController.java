@@ -127,7 +127,8 @@ public class PhotoController {
 	}
 
 	/**
-	 * Returns up to {@code count} randomly selected photos.
+	 * Returns up to {@code count} randomly selected photos, generating any missing thumbnails
+	 * before returning so that callers always receive a populated {@code thumbnailId}.
 	 *
 	 * Selection is done by counting the photos once (a cheap aggregate) and
 	 * fetching a single random page of that size. This deliberately avoids a
@@ -140,6 +141,7 @@ public class PhotoController {
 	 * @return 200 with a {@link List} of {@link MediaFile} records, or 204 No Content if the library is empty
 	 */
 	@GetMapping("random")
+	@Transactional
 	public ResponseEntity<List<MediaFile>> getRandomPhotos(
 			@RequestParam(defaultValue = "10") int count) {
 		int size = Math.min(Math.max(count, 1), 50);
@@ -153,7 +155,34 @@ public class PhotoController {
 				MediaKind.IMAGE,
 				PageRequest.of(randomPage, size, Sort.by("id"))).getContent());
 		Collections.shuffle(photos);
+		ensureThumbnails(photos);
 		return ResponseEntity.ok(photos);
+	}
+
+	/**
+	 * Generates a thumbnail for each photo in the list that does not yet have one.
+	 * Photos whose source file is absent or whose thumbnail generation fails are skipped silently.
+	 * After generation the in-memory {@code thumbnailId} field is synced so that the entity
+	 * serialises correctly without requiring a second database round-trip.
+	 *
+	 * @param photos the list of media files to process
+	 */
+	private void ensureThumbnails(List<MediaFile> photos) {
+		for (MediaFile photo : photos) {
+			if (photo.getThumbnailId() != null) continue;
+			Path sourceImage = Paths.get(photo.getLibraryFolder().getPath())
+					.resolve(photo.getPath())
+					.resolve(photo.getFilename());
+			if (!Files.isRegularFile(sourceImage)) continue;
+			try {
+				Thumbnail thumbnail = thumbnailService.generatePhotoThumbnail(photo.getId(), sourceImage);
+				photo.setThumbnail(thumbnail);
+				photo.setThumbnailId(thumbnail.getId());
+				mediaFileRepository.save(photo);
+			} catch (IOException e) {
+				// best-effort — skip photos whose thumbnail cannot be generated
+			}
+		}
 	}
 
 	/**

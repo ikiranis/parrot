@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { ref, Ref, watch, onMounted, onUnmounted } from "vue"
+import { ref, Ref, computed, watch, nextTick, onMounted, onUnmounted } from "vue"
 import { language } from "@/functions/languageStore.ts"
 import { errorStore } from "@/components/error/errorStore.ts"
-import { getRandomPhotos, getPhotoImageUrl, setPhotoRating, incrementPhotoView } from "@/api/photo.ts"
+import { getRandomPhotos, getPhotoImageUrl, getThumbnailUrl, setPhotoRating, incrementPhotoView } from "@/api/photo.ts"
 import { getSettingByName } from "@/api/setting.ts"
 import type { MediaFile, PhotoDetail } from "@/types"
 import Error from "@/components/error/Error.vue"
@@ -31,6 +31,11 @@ const isAutoPlay = ref(false)
 const hoverRating = ref(0)
 const slideshowTime = ref(3000)
 let slideshowTimer: ReturnType<typeof setInterval> | null = null
+const showStrip = ref(false)
+const stripRef: Ref<HTMLElement | null> = ref(null)
+
+/** All photos visible in the strip: history (oldest→current→future) followed by upcoming prefetch. */
+const stripPhotos = computed(() => [...history.value, ...prefetchQueue.value])
 
 watch(currentPhoto, async (photo) => {
 	showDetails.value = false
@@ -209,12 +214,43 @@ const navigateForward = async () => {
 	preloadNext()
 }
 
+/**
+ * Scrolls the strip container so the current photo thumbnail is centered in view.
+ * Uses a nextTick to wait for the DOM to reflect the latest historyIndex before querying.
+ */
+const scrollStripToCurrent = () => {
+	nextTick(() => {
+		if (!stripRef.value) return
+		const current = stripRef.value.querySelector<HTMLElement>('.slideshow__strip-item--current')
+		current?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' })
+	})
+}
+
+watch(showStrip, (visible) => { if (visible) scrollStripToCurrent() })
+watch(historyIndex, () => { if (showStrip.value) scrollStripToCurrent() })
+
+/**
+ * Jumps directly to a photo in history by its position in the strip.
+ * No-op for prefetch-queue items (index >= history.length) or while navigating.
+ *
+ * @param index position in stripPhotos
+ */
+const navigateToHistoryPhoto = (index: number) => {
+	if (navigating.value || index === historyIndex.value) return
+	if (index >= history.value.length) return
+	historyIndex.value = index
+	currentPhoto.value = history.value[index]
+}
+
 const handleKeydown = (event: KeyboardEvent) => {
 	if (event.key === 'ArrowRight') navigateForward()
 	else if (event.key === 'ArrowLeft') navigateBack()
 	else if (event.key === 'ArrowDown') {
 		event.preventDefault()
 		showDetails.value = !showDetails.value
+	} else if (event.key === 'ArrowUp') {
+		event.preventDefault()
+		showStrip.value = !showStrip.value
 	} else if (event.key === ' ') {
 		event.preventDefault()
 		toggleAutoPlay()
@@ -331,6 +367,33 @@ const toggleFullscreen = async () => {
 			{{ language.get("No photos found. Scan a folder to import photos.") }}
 		</div>
 
+		<Transition name="strip">
+			<div
+				v-if="showStrip && stripPhotos.length > 0"
+				class="slideshow__strip"
+				ref="stripRef"
+			>
+				<div
+					v-for="(photo, index) in stripPhotos"
+					:key="photo.id + '-' + index"
+					class="slideshow__strip-item"
+					:class="{
+						'slideshow__strip-item--current': index === historyIndex,
+						'slideshow__strip-item--upcoming': index >= history.length,
+					}"
+					@click="navigateToHistoryPhoto(index)"
+				>
+					<img
+						v-if="photo.thumbnailId"
+						:src="getThumbnailUrl(photo.thumbnailId)"
+						:alt="photo.filename"
+						class="slideshow__strip-thumb"
+					/>
+					<div v-else class="slideshow__strip-placeholder" />
+				</div>
+			</div>
+		</Transition>
+
 		<button
 			class="slideshow__arrow slideshow__arrow--left"
 			@click="navigateBack"
@@ -358,6 +421,17 @@ const toggleFullscreen = async () => {
 </template>
 
 <style scoped lang="scss">
+.strip-enter-active,
+.strip-leave-active {
+	transition: transform 0.25s ease, opacity 0.25s ease;
+}
+
+.strip-enter-from,
+.strip-leave-to {
+	transform: translateY(-100%);
+	opacity: 0;
+}
+
 .slideshow {
 	position: relative;
 	background: #111;
@@ -525,6 +599,66 @@ const toggleFullscreen = async () => {
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
+	}
+
+	&__strip {
+		position: absolute;
+		top: 0;
+		left: 0;
+		right: 0;
+		height: 104px;
+		background: rgba(0, 0, 0, 0.8);
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		padding: 0 12px;
+		overflow-x: auto;
+		overflow-y: hidden;
+		z-index: 10;
+		scrollbar-width: none;
+
+		&::-webkit-scrollbar {
+			display: none;
+		}
+	}
+
+	&__strip-item {
+		flex-shrink: 0;
+		width: 80px;
+		height: 80px;
+		border-radius: 5px;
+		overflow: hidden;
+		cursor: pointer;
+		border: 2px solid transparent;
+		transition: border-color 0.15s, transform 0.15s, opacity 0.15s;
+
+		&:hover:not(&--current):not(&--upcoming) {
+			border-color: rgba(255, 255, 255, 0.5);
+		}
+
+		&--current {
+			border-color: #f5c518;
+			transform: scale(1.1);
+			cursor: default;
+		}
+
+		&--upcoming {
+			cursor: default;
+			opacity: 0.55;
+		}
+	}
+
+	&__strip-thumb {
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
+		display: block;
+	}
+
+	&__strip-placeholder {
+		width: 100%;
+		height: 100%;
+		background: rgba(255, 255, 255, 0.08);
 	}
 
 	&__arrow {

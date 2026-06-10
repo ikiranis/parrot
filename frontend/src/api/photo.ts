@@ -115,6 +115,15 @@ export const getPhotoImageUrl = (id: number): string =>
     config.defaultServer() + `/api/photos/${id}/image`
 
 /**
+ * Returns the URL that serves the thumbnail JPEG for the given thumbnail id.
+ *
+ * @param thumbnailId the primary key of the thumbnail record
+ * @returns the thumbnail endpoint URL string
+ */
+export const getThumbnailUrl = (thumbnailId: number): string =>
+    config.defaultServer() + `/api/thumbnails/${thumbnailId}`
+
+/**
  * Generates a thumbnail for the specified photo and returns its id.
  * If a thumbnail already exists for the photo, returns the existing id.
  *

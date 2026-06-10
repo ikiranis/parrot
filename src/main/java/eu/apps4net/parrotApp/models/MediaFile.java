@@ -218,4 +218,16 @@ public class MediaFile {
 	public void setThumbnail(Thumbnail thumbnail) {
 		this.thumbnail = thumbnail;
 	}
+
+	/**
+	 * Updates the in-memory thumbnail id shadow field.
+	 * Call this immediately after {@link #setThumbnail} when the entity is still in an active
+	 * persistence context and the column has not yet been refreshed from the database, so that
+	 * the serialised response contains the correct thumbnail id.
+	 *
+	 * @param thumbnailId the thumbnail id to set, or {@code null} to clear
+	 */
+	public void setThumbnailId(Long thumbnailId) {
+		this.thumbnailId = thumbnailId;
+	}
 }
