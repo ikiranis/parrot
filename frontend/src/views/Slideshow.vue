@@ -2,7 +2,7 @@
 import { ref, Ref, computed, watch, nextTick, onMounted, onUnmounted } from "vue"
 import { language } from "@/functions/languageStore.ts"
 import { errorStore } from "@/components/error/errorStore.ts"
-import { getRandomPhotos, getPhotoImageUrl, getThumbnailUrl, setPhotoRating, incrementPhotoView } from "@/api/photo.ts"
+import { getRandomPhotos, getPhotoImageUrl, getThumbnailUrl, setPhotoRating, incrementPhotoView, deletePhoto } from "@/api/photo.ts"
 import { getSettingByName } from "@/api/setting.ts"
 import type { MediaFile, PhotoDetail } from "@/types"
 import Error from "@/components/error/Error.vue"
@@ -33,6 +33,7 @@ const slideshowTime = ref(3000)
 let slideshowTimer: ReturnType<typeof setInterval> | null = null
 const showStrip = ref(false)
 const stripRef: Ref<HTMLElement | null> = ref(null)
+const showDeleteModal = ref(false)
 
 /** All photos visible in the strip: history (oldest→current→future) followed by upcoming prefetch. */
 const stripPhotos = computed(() => [...history.value, ...prefetchQueue.value])
@@ -242,7 +243,31 @@ const navigateToHistoryPhoto = (index: number) => {
 	currentPhoto.value = history.value[index]
 }
 
+const deleteCurrentPhoto = async () => {
+	if (!currentPhoto.value) return
+	const photo = currentPhoto.value
+	showDeleteModal.value = false
+
+	try {
+		await deletePhoto(photo.id)
+	} catch (error: unknown) {
+		const err = error as { response?: { data?: { message?: string; status?: number } }; message?: string }
+		errorStore.set(true, err.response?.data?.message ?? err.message ?? '', err.response?.data?.status ?? 500)
+		return
+	}
+
+	history.value.splice(historyIndex.value, 1)
+	releaseImage(photo.id)
+	historyIndex.value = history.value.length - 1
+	await navigateForward()
+}
+
 const handleKeydown = (event: KeyboardEvent) => {
+	if (showDeleteModal.value) {
+		if (event.key === 'Escape') showDeleteModal.value = false
+		else if (event.key === 'Enter') deleteCurrentPhoto()
+		return
+	}
 	if (event.key === 'ArrowRight') navigateForward()
 	else if (event.key === 'ArrowLeft') navigateBack()
 	else if (event.key === 'ArrowDown') {
@@ -254,6 +279,8 @@ const handleKeydown = (event: KeyboardEvent) => {
 	} else if (event.key === ' ') {
 		event.preventDefault()
 		toggleAutoPlay()
+	} else if (event.key === 'd' || event.key === 'D') {
+		if (currentPhoto.value) showDeleteModal.value = true
 	}
 }
 
@@ -415,6 +442,28 @@ const toggleFullscreen = async () => {
 				<path fill-rule="evenodd" d="M4.646 1.646a.5.5 0 0 1 .708 0l6 6a.5.5 0 0 1 0 .708l-6 6a.5.5 0 0 1-.708-.708L10.293 8 4.646 2.354a.5.5 0 0 1 0-.708z"/>
 			</svg>
 		</button>
+
+		<Transition name="modal">
+			<div
+				v-if="showDeleteModal"
+				class="slideshow__modal-overlay"
+				@click.self="showDeleteModal = false"
+			>
+				<div class="slideshow__modal">
+					<h3 class="slideshow__modal-title">{{ language.get('Delete Photo') }}</h3>
+					<p class="slideshow__modal-message">{{ language.get('Are you sure you want to delete this photo?') }}</p>
+					<p class="slideshow__modal-filename">{{ currentPhoto?.filename }}</p>
+					<div class="slideshow__modal-actions">
+						<button class="slideshow__modal-btn slideshow__modal-btn--cancel" @click="showDeleteModal = false">
+							{{ language.get('Cancel') }}
+						</button>
+						<button class="slideshow__modal-btn slideshow__modal-btn--confirm" @click="deleteCurrentPhoto">
+							{{ language.get('Delete') }}
+						</button>
+					</div>
+				</div>
+			</div>
+		</Transition>
 
 		<Error />
 	</div>
@@ -695,5 +744,93 @@ const toggleFullscreen = async () => {
 	&:hover .slideshow__arrow:not(:disabled) {
 		opacity: 1;
 	}
+
+	&__modal-overlay {
+		position: absolute;
+		inset: 0;
+		background: rgba(0, 0, 0, 0.65);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		z-index: 100;
+	}
+
+	&__modal {
+		background: #1e1e1e;
+		border: 1px solid rgba(255, 255, 255, 0.15);
+		border-radius: 8px;
+		padding: 1.75rem 2rem;
+		min-width: 320px;
+		max-width: 480px;
+		text-align: center;
+	}
+
+	&__modal-title {
+		color: #fff;
+		font-size: 1.1rem;
+		font-weight: 600;
+		margin: 0 0 0.75rem;
+	}
+
+	&__modal-message {
+		color: rgba(255, 255, 255, 0.75);
+		font-size: 0.9rem;
+		margin: 0 0 0.4rem;
+	}
+
+	&__modal-filename {
+		color: rgba(255, 255, 255, 0.45);
+		font-size: 0.8rem;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		margin: 0 0 1.5rem;
+	}
+
+	&__modal-actions {
+		display: flex;
+		gap: 0.75rem;
+		justify-content: center;
+	}
+
+	&__modal-btn {
+		padding: 0.5rem 1.4rem;
+		border-radius: 6px;
+		font-size: 0.9rem;
+		cursor: pointer;
+		border: 1px solid transparent;
+		transition: background 0.15s, border-color 0.15s;
+
+		&--cancel {
+			background: rgba(255, 255, 255, 0.1);
+			border-color: rgba(255, 255, 255, 0.2);
+			color: rgba(255, 255, 255, 0.85);
+
+			&:hover {
+				background: rgba(255, 255, 255, 0.2);
+			}
+		}
+
+		&--confirm {
+			background: #c0392b;
+			border-color: #c0392b;
+			color: #fff;
+
+			&:hover {
+				background: #e74c3c;
+				border-color: #e74c3c;
+			}
+		}
+	}
+}
+
+.modal-enter-active,
+.modal-leave-active {
+	transition: opacity 0.18s ease;
+}
+
+.modal-enter-from,
+.modal-leave-to {
+	opacity: 0;
 }
 </style>

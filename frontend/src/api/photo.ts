@@ -148,6 +148,17 @@ export const setPhotoRating = async (id: number, rating: number): Promise<import
 }
 
 /**
+ * Deletes the photo record with the given id from the database.
+ * The physical file on disk is not affected.
+ *
+ * @param id the primary key of the media file to delete
+ * @returns void on success
+ */
+export const deletePhoto = async (id: number): Promise<void> => {
+    await axios.delete(config.defaultServer() + `/api/photos/${id}`)
+}
+
+/**
  * Increments the view counter for the specified photo by one.
  *
  * @param id the primary key of the media file

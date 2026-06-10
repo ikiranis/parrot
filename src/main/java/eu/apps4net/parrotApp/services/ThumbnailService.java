@@ -129,6 +129,17 @@ public class ThumbnailService {
 	}
 
 	/**
+	 * Returns the absolute file-system path for the given thumbnail.
+	 * The path is resolved from the application working directory.
+	 *
+	 * @param thumbnail the thumbnail whose file path to resolve
+	 * @return the absolute {@link Path} to the thumbnail file on disk
+	 */
+	public Path resolveThumbnailPath(Thumbnail thumbnail) {
+		return Paths.get(THUMBNAILS_ROOT).resolve(thumbnail.getPath());
+	}
+
+	/**
 	 * Generates a thumbnail for a single media file and returns the saved {@link Thumbnail} entity.
 	 * The thumbnail is a 150x150-pixel centre-crop JPEG written to
 	 * {@code thumbnails/YYYY/MM/DD/HH/<fileId>_<nanos>.jpg} relative to the application working directory.

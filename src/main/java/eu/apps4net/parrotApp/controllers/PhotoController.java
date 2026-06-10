@@ -26,6 +26,7 @@ import eu.apps4net.parrotApp.repositories.MediaFileRepository;
 import eu.apps4net.parrotApp.repositories.PhotoTagRepository;
 import eu.apps4net.parrotApp.services.LibraryFolderService;
 import eu.apps4net.parrotApp.services.MediaScanService;
+import eu.apps4net.parrotApp.services.PhotoService;
 import eu.apps4net.parrotApp.services.ThumbnailService;
 
 import java.io.File;
@@ -67,6 +68,9 @@ public class PhotoController {
 	/** Service for generating and retrieving thumbnails. */
 	private final ThumbnailService thumbnailService;
 
+	/** Service encapsulating photo business logic such as deletion. */
+	private final PhotoService photoService;
+
 	/** JDBC template used for bulk import writes, bypassing JPA dirty-checking overhead. */
 	private final JdbcTemplate jdbcTemplate;
 
@@ -78,6 +82,7 @@ public class PhotoController {
 	 * @param photoTagRepository  the photo tag repository
 	 * @param libraryFolderService the library folder service
 	 * @param thumbnailService    the thumbnail service
+	 * @param photoService        the photo service
 	 * @param jdbcTemplate        the JDBC template
 	 */
 	public PhotoController(MediaScanService mediaScanService,
@@ -85,12 +90,14 @@ public class PhotoController {
 						   PhotoTagRepository photoTagRepository,
 						   LibraryFolderService libraryFolderService,
 						   ThumbnailService thumbnailService,
+						   PhotoService photoService,
 						   JdbcTemplate jdbcTemplate) {
 		this.mediaScanService = mediaScanService;
 		this.mediaFileRepository = mediaFileRepository;
 		this.photoTagRepository = photoTagRepository;
 		this.libraryFolderService = libraryFolderService;
 		this.thumbnailService = thumbnailService;
+		this.photoService = photoService;
 		this.jdbcTemplate = jdbcTemplate;
 	}
 
@@ -341,6 +348,21 @@ public class PhotoController {
 		} catch (IOException e) {
 			throw new ProcessingErrorException("Thumbnail generation failed: " + e.getMessage());
 		}
+	}
+
+	/**
+	 * Deletes a single photo record from the database by its primary key.
+	 * The associated {@link eu.apps4net.parrotApp.models.PhotoTag}, if any, is removed first.
+	 * The physical file on disk is not affected.
+	 *
+	 * @param id the primary key of the media file to delete
+	 * @return an empty 204 No Content response
+	 * @throws NotFoundException if no media file with the given id exists
+	 */
+	@DeleteMapping("{id}")
+	public ResponseEntity<Void> deletePhoto(@PathVariable Long id) {
+		photoService.deletePhoto(id);
+		return ResponseEntity.noContent().build();
 	}
 
 	/**

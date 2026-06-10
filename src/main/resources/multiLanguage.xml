@@ -456,4 +456,14 @@
         <language code="el">Έξοδος πλήρους οθόνης</language>
     </entry>
 
+    <entry id="Delete Photo">
+        <language code="en">Delete Photo</language>
+        <language code="el">Διαγραφή Φωτογραφίας</language>
+    </entry>
+
+    <entry id="Are you sure you want to delete this photo?">
+        <language code="en">Are you sure you want to delete this photo?</language>
+        <language code="el">Είστε σίγουροι ότι θέλετε να διαγράψετε αυτή τη φωτογραφία;</language>
+    </entry>
+
 </root>
