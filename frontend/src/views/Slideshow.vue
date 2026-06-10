@@ -339,7 +339,7 @@ const toggleFullscreen = async () => {
 	&__rating {
 		position: absolute;
 		top: 1rem;
-		left: 1rem;
+		left: 4rem;
 		display: flex;
 		gap: 0.1rem;
 		background: rgba(0, 0, 0, 0.55);
@@ -348,7 +348,7 @@ const toggleFullscreen = async () => {
 	}
 
 	&__star {
-		font-size: 1.1rem;
+		font-size: 2.2rem;
 		color: rgba(255, 255, 255, 0.25);
 		line-height: 1;
 		cursor: pointer;
