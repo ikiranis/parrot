@@ -520,7 +520,7 @@ const toggleFullscreen = async () => {
 	&__rating {
 		position: absolute;
 		top: 1rem;
-		left: 4rem;
+		left: 6rem;
 		display: flex;
 		gap: 0.1rem;
 		background: rgba(0, 0, 0, 0.55);
