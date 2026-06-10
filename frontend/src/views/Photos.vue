@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, Ref, onMounted } from "vue"
+import { ref, Ref, computed, onMounted } from "vue"
 import { language } from "@/functions/languageStore.ts"
 import { errorStore } from "@/components/error/errorStore.ts"
 import { createPhotoThumbnail } from "@/api/photo.ts"
@@ -105,6 +105,7 @@ const navigateInto = async (folder: Folder) => {
  * Jumps to a specific point in the breadcrumb trail.  Passing -1 resets to root.
  */
 const navigateTo = async (stackIndex: number) => {
+	selectedPhotoId.value = null
 	if (stackIndex < 0) {
 		await loadRoot()
 		return
@@ -170,6 +171,24 @@ const handleError = (error: unknown) => {
 	const err = error as { response?: { data?: { message?: string; status?: number } }; message?: string }
 	errorStore.set(true, err.response?.data?.message ?? err.message ?? "", err.response?.data?.status ?? 500)
 }
+
+const selectedPhotoIndex = computed(() =>
+	displayPhotos.value.findIndex(p => p.id === selectedPhotoId.value)
+)
+
+const hasPrevPhoto = computed(() => selectedPhotoIndex.value > 0)
+
+const hasNextPhoto = computed(() => selectedPhotoIndex.value < displayPhotos.value.length - 1)
+
+const goToPrevPhoto = () => {
+	const idx = selectedPhotoIndex.value
+	if (idx > 0) selectedPhotoId.value = displayPhotos.value[idx - 1].id
+}
+
+const goToNextPhoto = () => {
+	const idx = selectedPhotoIndex.value
+	if (idx < displayPhotos.value.length - 1) selectedPhotoId.value = displayPhotos.value[idx + 1].id
+}
 </script>
 
 <template>
@@ -202,97 +221,112 @@ const handleError = (error: unknown) => {
 			</ol>
 		</nav>
 
-		<!-- Loading -->
-		<div v-if="loading">
-			<Loading />
-		</div>
+		<!-- Photo viewer -->
+		<PhotoDetail
+			v-if="selectedPhotoId !== null"
+			:photoId="selectedPhotoId"
+			:hasPrev="hasPrevPhoto"
+			:hasNext="hasNextPhoto"
+			@close="selectedPhotoId = null"
+			@prev="goToPrevPhoto"
+			@next="goToNextPhoto"
+		/>
 
-		<!-- Unified grid: folders first, then photos -->
-		<div v-else>
-			<div v-if="displayFolders.length === 0 && displayPhotos.length === 0 && folderStack.length === 0" class="text-muted">
-				{{ language.get("No folders found. Scan a folder to import photos.") }}
+		<!-- Grid view -->
+		<template v-else>
+
+			<!-- Loading -->
+			<div v-if="loading">
+				<Loading />
 			</div>
+
+			<!-- Unified grid: folders first, then photos -->
 			<div v-else>
-				<div v-if="displayPhotos.length > 0" class="text-muted small mb-2">
-					{{ displayPhotos.length }} {{ language.get("photos") }}
+				<div v-if="displayFolders.length === 0 && displayPhotos.length === 0 && folderStack.length === 0" class="text-muted">
+					{{ language.get("No folders found. Scan a folder to import photos.") }}
 				</div>
-				<div class="row row-cols-2 row-cols-sm-3 row-cols-md-4 row-cols-lg-5 row-cols-xl-6 g-3">
-
-					<!-- Go-up card -->
-					<div v-if="folderStack.length > 0" class="col">
-						<div class="media-card up-card" @click="navigateTo(folderStack.length - 2)">
-							<div class="media-thumb">
-								<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" fill="#6c757d" viewBox="0 0 16 16">
-									<path fill-rule="evenodd" d="M8 15a.5.5 0 0 0 .5-.5V2.707l3.146 3.147a.5.5 0 0 0 .708-.708l-4-4a.5.5 0 0 0-.708 0l-4 4a.5.5 0 1 0 .708.708L7.5 2.707V14.5a.5.5 0 0 0 .5.5z"/>
-								</svg>
-							</div>
-							<div class="media-name">{{ language.get("..") }}</div>
-						</div>
+				<div v-else>
+					<div v-if="displayPhotos.length > 0" class="text-muted small mb-2">
+						{{ displayPhotos.length }} {{ language.get("photos") }}
 					</div>
+					<div class="row row-cols-2 row-cols-sm-3 row-cols-md-4 row-cols-lg-5 row-cols-xl-6 g-3">
 
-					<!-- Folder cards -->
-					<div v-for="folder in displayFolders" :key="'f-' + folder.id" class="col">
-						<div class="media-card folder-card" @click="navigateInto(folder)" :title="folder.path">
-							<div class="media-thumb">
-								<div v-if="loadingFolderThumbnails.has(folder.id)" class="thumb-generating">
-									<span class="spinner-border spinner-border-sm text-secondary" role="status"></span>
-								</div>
-								<img
-									v-else-if="folder.thumbnailId"
-									:src="getThumbnailUrl(folder.thumbnailId)"
-									:alt="folderName(folder)"
-									class="thumb-img"
-								/>
-								<svg v-else xmlns="http://www.w3.org/2000/svg" width="48" height="48" fill="#a08a50" viewBox="0 0 16 16">
-									<path d="M9.828 3h3.982a2 2 0 0 1 1.992 2.181l-.637 7A2 2 0 0 1 13.174 14H2.826a2 2 0 0 1-1.991-1.819l-.637-7a1.99 1.99 0 0 1 .342-1.31L.5 3a2 2 0 0 1 2-2h3.672a2 2 0 0 1 1.414.586l.828.828A2 2 0 0 0 9.828 3zm-8.322.12C1.72 3.042 1.95 3 2.19 3h5.396l-.707-.707A1 1 0 0 0 6.172 2H2.5a1 1 0 0 0-1 .981l.006.139z"/>
-								</svg>
-								<!-- Folder type badge -->
-								<div class="type-badge">
-									<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="white" viewBox="0 0 16 16">
-										<path d="M9.828 3h3.982a2 2 0 0 1 1.992 2.181l-.637 7A2 2 0 0 1 13.174 14H2.826a2 2 0 0 1-1.991-1.819l-.637-7a1.99 1.99 0 0 1 .342-1.31L.5 3a2 2 0 0 1 2-2h3.672a2 2 0 0 1 1.414.586l.828.828A2 2 0 0 0 9.828 3zm-8.322.12C1.72 3.042 1.95 3 2.19 3h5.396l-.707-.707A1 1 0 0 0 6.172 2H2.5a1 1 0 0 0-1 .981l.006.139z"/>
+						<!-- Go-up card -->
+						<div v-if="folderStack.length > 0" class="col">
+							<div class="media-card up-card" @click="navigateTo(folderStack.length - 2)">
+								<div class="media-thumb">
+									<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" fill="#6c757d" viewBox="0 0 16 16">
+										<path fill-rule="evenodd" d="M8 15a.5.5 0 0 0 .5-.5V2.707l3.146 3.147a.5.5 0 0 0 .708-.708l-4-4a.5.5 0 0 0-.708 0l-4 4a.5.5 0 1 0 .708.708L7.5 2.707V14.5a.5.5 0 0 0 .5.5z"/>
 									</svg>
 								</div>
+								<div class="media-name">{{ language.get("..") }}</div>
 							</div>
-							<div class="media-name">{{ folderName(folder) }}</div>
 						</div>
-					</div>
 
-					<!-- Photo cards -->
-					<div v-for="photo in displayPhotos" :key="'p-' + photo.id" class="col">
-						<div class="media-card photo-card" @click="selectedPhotoId = photo.id" :title="photo.filename">
-							<div class="media-thumb">
-								<div v-if="loadingThumbnails.has(photo.id)" class="thumb-generating">
-									<span class="spinner-border spinner-border-sm text-secondary" role="status"></span>
+						<!-- Folder cards -->
+						<div v-for="folder in displayFolders" :key="'f-' + folder.id" class="col">
+							<div class="media-card folder-card" @click="navigateInto(folder)" :title="folder.path">
+								<div class="media-thumb">
+									<div v-if="loadingFolderThumbnails.has(folder.id)" class="thumb-generating">
+										<span class="spinner-border spinner-border-sm text-secondary" role="status"></span>
+									</div>
+									<img
+										v-else-if="folder.thumbnailId"
+										:src="getThumbnailUrl(folder.thumbnailId)"
+										:alt="folderName(folder)"
+										class="thumb-img"
+									/>
+									<svg v-else xmlns="http://www.w3.org/2000/svg" width="48" height="48" fill="#a08a50" viewBox="0 0 16 16">
+										<path d="M9.828 3h3.982a2 2 0 0 1 1.992 2.181l-.637 7A2 2 0 0 1 13.174 14H2.826a2 2 0 0 1-1.991-1.819l-.637-7a1.99 1.99 0 0 1 .342-1.31L.5 3a2 2 0 0 1 2-2h3.672a2 2 0 0 1 1.414.586l.828.828A2 2 0 0 0 9.828 3zm-8.322.12C1.72 3.042 1.95 3 2.19 3h5.396l-.707-.707A1 1 0 0 0 6.172 2H2.5a1 1 0 0 0-1 .981l.006.139z"/>
+									</svg>
+									<!-- Folder type badge -->
+									<div class="type-badge">
+										<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="white" viewBox="0 0 16 16">
+											<path d="M9.828 3h3.982a2 2 0 0 1 1.992 2.181l-.637 7A2 2 0 0 1 13.174 14H2.826a2 2 0 0 1-1.991-1.819l-.637-7a1.99 1.99 0 0 1 .342-1.31L.5 3a2 2 0 0 1 2-2h3.672a2 2 0 0 1 1.414.586l.828.828A2 2 0 0 0 9.828 3zm-8.322.12C1.72 3.042 1.95 3 2.19 3h5.396l-.707-.707A1 1 0 0 0 6.172 2H2.5a1 1 0 0 0-1 .981l.006.139z"/>
+										</svg>
+									</div>
 								</div>
-								<img
-									v-else-if="photo.thumbnailId"
-									:src="getThumbnailUrl(photo.thumbnailId)"
-									:alt="photo.filename"
-									class="thumb-img"
-								/>
-								<svg v-else xmlns="http://www.w3.org/2000/svg" width="48" height="48" fill="#7090b0" viewBox="0 0 16 16">
-									<path d="M6.502 7a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3z"/>
-									<path d="M14 14a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V2a2 2 0 0 1 2-2h5.5L14 4.5V14zM4 1a1 1 0 0 0-1 1v10l2.224-2.224a.5.5 0 0 1 .61-.075L8 11l2.157-3.02a.5.5 0 0 1 .76-.063L13 10V4.5h-2A1.5 1.5 0 0 1 9.5 3V1H4z"/>
-								</svg>
-								<!-- Photo type badge -->
-								<div class="type-badge">
-									<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="white" viewBox="0 0 16 16">
+								<div class="media-name">{{ folderName(folder) }}</div>
+							</div>
+						</div>
+
+						<!-- Photo cards -->
+						<div v-for="photo in displayPhotos" :key="'p-' + photo.id" class="col">
+							<div class="media-card photo-card" @click="selectedPhotoId = photo.id" :title="photo.filename">
+								<div class="media-thumb">
+									<div v-if="loadingThumbnails.has(photo.id)" class="thumb-generating">
+										<span class="spinner-border spinner-border-sm text-secondary" role="status"></span>
+									</div>
+									<img
+										v-else-if="photo.thumbnailId"
+										:src="getThumbnailUrl(photo.thumbnailId)"
+										:alt="photo.filename"
+										class="thumb-img"
+									/>
+									<svg v-else xmlns="http://www.w3.org/2000/svg" width="48" height="48" fill="#7090b0" viewBox="0 0 16 16">
 										<path d="M6.502 7a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3z"/>
 										<path d="M14 14a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V2a2 2 0 0 1 2-2h5.5L14 4.5V14zM4 1a1 1 0 0 0-1 1v10l2.224-2.224a.5.5 0 0 1 .61-.075L8 11l2.157-3.02a.5.5 0 0 1 .76-.063L13 10V4.5h-2A1.5 1.5 0 0 1 9.5 3V1H4z"/>
 									</svg>
+									<!-- Photo type badge -->
+									<div class="type-badge">
+										<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="white" viewBox="0 0 16 16">
+											<path d="M6.502 7a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3z"/>
+											<path d="M14 14a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V2a2 2 0 0 1 2-2h5.5L14 4.5V14zM4 1a1 1 0 0 0-1 1v10l2.224-2.224a.5.5 0 0 1 .61-.075L8 11l2.157-3.02a.5.5 0 0 1 .76-.063L13 10V4.5h-2A1.5 1.5 0 0 1 9.5 3V1H4z"/>
+										</svg>
+									</div>
 								</div>
+								<div class="media-name">{{ photo.filename }}</div>
 							</div>
-							<div class="media-name">{{ photo.filename }}</div>
 						</div>
-					</div>
 
+					</div>
 				</div>
 			</div>
-		</div>
+
+		</template>
 
 		<Error />
 
-		<PhotoDetail :photoId="selectedPhotoId" @close="selectedPhotoId = null" />
 	</div>
 </template>
 
