@@ -421,6 +421,21 @@
         <language code="el">αρχεία</language>
     </entry>
 
+    <entry id="folders/s">
+        <language code="en">folders/s</language>
+        <language code="el">φάκελοι/δευτ.</language>
+    </entry>
+
+    <entry id="files/s">
+        <language code="en">files/s</language>
+        <language code="el">αρχεία/δευτ.</language>
+    </entry>
+
+    <entry id="ETA">
+        <language code="en">ETA</language>
+        <language code="el">Εκτιμώμενος χρόνος</language>
+    </entry>
+
     <entry id="Library total">
         <language code="en">Library total</language>
         <language code="el">Σύνολο βιβλιοθήκης</language>

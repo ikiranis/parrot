@@ -18,7 +18,13 @@ import jakarta.validation.constraints.Size;
 		// filename (not path) is indexed because Derby caps index keys at ~half the page
 		// size; path is VARCHAR(1024) and risks exceeding it, while (library_folder_id,
 		// filename) is selective enough on its own, leaving path as a cheap residual filter.
-		@Index(name = "idx_media_file_folder_filename", columnList = "library_folder_id, filename")
+		@Index(name = "idx_media_file_folder_filename", columnList = "library_folder_id, filename"),
+		// Supports the tag-scan phase, which drains untagged files of a kind in ascending id
+		// order via a forward cursor (WHERE kind = ? AND id > ? ORDER BY id). Without this index
+		// every batch re-scans the whole table from the start, degrading to O(n squared) as the
+		// number of tagged rows grows. kind is stored as a small ordinal integer, so the
+		// (kind, id) key is well within Derby's index key-size limit.
+		@Index(name = "idx_media_file_kind_id", columnList = "kind, id")
 })
 public class MediaFile {
 

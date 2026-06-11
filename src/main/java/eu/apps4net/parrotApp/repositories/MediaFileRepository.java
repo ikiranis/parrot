@@ -77,6 +77,28 @@ public interface MediaFileRepository extends JpaRepository<MediaFile, Long> {
 			@org.springframework.data.repository.query.Param("filenames") java.util.Collection<String> filenames);
 
 	/**
+	 * Returns the filenames, among the supplied candidates, that already exist in the given
+	 * directory of the given library folder.
+	 *
+	 * Unlike {@link #findFilenamesByLibraryFolderAndPath}, which filters only on the library
+	 * folder and path and therefore scans every row of that library folder, this query is
+	 * driven by the {@code (library_folder_id, filename)} index: it probes the index once per
+	 * candidate filename and applies the path as a residual filter. This keeps the per-directory
+	 * existence check proportional to the number of files in the directory rather than to the
+	 * size of the whole library, which matters as the table grows during a large scan.
+	 *
+	 * @param lf        the library folder the files belong to
+	 * @param path      the directory path relative to the library folder root
+	 * @param filenames the candidate filenames discovered on disk in that directory
+	 * @return the subset of {@code filenames} already present in the database for that directory
+	 */
+	@Query("SELECT mf.filename FROM MediaFile mf WHERE mf.libraryFolder = :lf AND mf.path = :path AND mf.filename IN :filenames")
+	List<String> findExistingFilenames(
+			@org.springframework.data.repository.query.Param("lf") LibraryFolder lf,
+			@org.springframework.data.repository.query.Param("path") String path,
+			@org.springframework.data.repository.query.Param("filenames") java.util.Collection<String> filenames);
+
+	/**
 	 * Returns a paginated list of media files of the given kind.
 	 *
 	 * @param kind     the media kind to filter by
@@ -126,6 +148,30 @@ public interface MediaFileRepository extends JpaRepository<MediaFile, Long> {
 	 */
 	@Query("SELECT mf FROM MediaFile mf WHERE mf.kind = ?1 AND NOT EXISTS (SELECT pt FROM PhotoTag pt WHERE pt.mediaFile = mf)")
 	Page<MediaFile> findByKindWithoutPhotoTag(MediaKind kind, Pageable pageable);
+
+	/**
+	 * Returns the next batch of untagged media files of the given kind whose id is greater than
+	 * {@code afterId}, ordered by ascending id.
+	 *
+	 * This is the forward-cursor form used by the tag-scan phase: by advancing {@code afterId}
+	 * to the highest id of each returned batch, successive calls never re-examine rows that were
+	 * already drained, so draining the whole backlog costs O(n) rather than the O(n squared) of
+	 * repeatedly fetching page 0 and skipping a growing prefix of already-tagged rows. Because
+	 * identity ids are monotonically increasing, rows inserted concurrently by the file-scan
+	 * phase are naturally picked up on a later call. Returns a {@code List} (not a {@code Page})
+	 * so that no additional count query is issued per batch.
+	 *
+	 * Backed by the {@code (kind, id)} index, which provides both the {@code kind} filter and the
+	 * ascending-id ordering as an index-only forward scan.
+	 *
+	 * @param kind     the media kind to filter by
+	 * @param afterId  exclusive lower bound on the id; pass 0 to start from the beginning
+	 * @param pageable batch-size limit (use {@code PageRequest.of(0, batchSize)})
+	 * @return up to {@code batchSize} untagged records of that kind with id greater than {@code afterId}
+	 */
+	@Query("SELECT mf FROM MediaFile mf WHERE mf.kind = ?1 AND mf.id > ?2 " +
+			"AND NOT EXISTS (SELECT pt FROM PhotoTag pt WHERE pt.mediaFile = mf) ORDER BY mf.id ASC")
+	List<MediaFile> findByKindWithoutPhotoTagAfterId(MediaKind kind, Long afterId, Pageable pageable);
 
 	/**
 	 * Counts media files of the given kind that have no corresponding

@@ -10,7 +10,7 @@
     </parent>
     <groupId>eu.apps4net</groupId>
     <artifactId>ParrotApp</artifactId>
-    <version>0.1.9</version>
+    <version>0.1.10</version>
     <name>ParrotApp</name>
     <description>Generic structure for a Java App</description>
     <url/>

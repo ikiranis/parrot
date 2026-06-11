@@ -4,13 +4,22 @@ import { language } from "@/functions/languageStore.ts"
 import { startScan, getScanStatus } from "@/api/scan.ts"
 import type { ScanJobResponse } from "@/types"
 
-const POLL_INTERVAL_MS = 10_000
+const POLL_INTERVAL_MS = 2_000
+
+/** Weight of the newest sample when smoothing throughput rates (0..1; higher = more reactive). */
+const RATE_SMOOTHING = 0.4
 
 const scanState = ref<ScanJobResponse | null>(null)
 const starting = ref(false)
 const errorMessage = ref("")
 const showErrorLogs = ref(false)
 let pollTimer: ReturnType<typeof setInterval> | null = null
+
+/** Previous poll sample, used to derive throughput from the delta to the current sample. */
+const prevSample = ref<{ t: number; folders: number; added: number; tagged: number } | null>(null)
+
+/** Exponentially-smoothed throughput rates (per second) for the active phase. */
+const rates = ref<{ foldersPerSec: number; filesPerSec: number; tagsPerSec: number } | null>(null)
 
 onMounted(() => {
 	fetchStatus()
@@ -20,10 +29,41 @@ onUnmounted(() => {
 	stopPolling()
 })
 
+/**
+ * Stores the latest scan status and refreshes the smoothed throughput rates from the delta
+ * since the previous poll. Sampling state is cleared whenever the scan is not actively running.
+ *
+ * @param s the freshly fetched scan status
+ */
+const applyState = (s: ScanJobResponse): void => {
+	if (s.status === "RUNNING") {
+		const now = Date.now()
+		const folders = s.foldersScanned + s.foldersSkipped
+		const prev = prevSample.value
+		if (prev) {
+			const dt = (now - prev.t) / 1000
+			if (dt > 0) {
+				const ema = (previous: number | undefined, instant: number): number =>
+					previous === undefined ? instant : previous * (1 - RATE_SMOOTHING) + instant * RATE_SMOOTHING
+				rates.value = {
+					foldersPerSec: ema(rates.value?.foldersPerSec, Math.max(0, folders - prev.folders) / dt),
+					filesPerSec: ema(rates.value?.filesPerSec, Math.max(0, s.added - prev.added) / dt),
+					tagsPerSec: ema(rates.value?.tagsPerSec, Math.max(0, s.tagged - prev.tagged) / dt),
+				}
+			}
+		}
+		prevSample.value = { t: now, folders, added: s.added, tagged: s.tagged }
+	} else {
+		prevSample.value = null
+		rates.value = null
+	}
+	scanState.value = s
+}
+
 const fetchStatus = async () => {
 	try {
-		scanState.value = await getScanStatus()
-		if (scanState.value.status === "RUNNING") {
+		applyState(await getScanStatus())
+		if (scanState.value?.status === "RUNNING") {
 			startPolling()
 		}
 	} catch {
@@ -35,8 +75,8 @@ const startPolling = () => {
 	if (pollTimer !== null) return
 	pollTimer = setInterval(async () => {
 		try {
-			scanState.value = await getScanStatus()
-			if (scanState.value.status !== "RUNNING") {
+			applyState(await getScanStatus())
+			if (scanState.value?.status !== "RUNNING") {
 				stopPolling()
 			}
 		} catch {
@@ -56,8 +96,10 @@ const onStartScan = async () => {
 	errorMessage.value = ""
 	showErrorLogs.value = false
 	starting.value = true
+	prevSample.value = null
+	rates.value = null
 	try {
-		scanState.value = await startScan()
+		applyState(await startScan())
 		startPolling()
 	} catch (error: unknown) {
 		const err = error as { response?: { data?: { message?: string } }; message?: string }
@@ -120,6 +162,69 @@ const phaseDetail = computed((): string => {
 	}
 	return ""
 })
+
+/**
+ * Returns the current throughput as a human-readable string (e.g. "1,250 folders/s · 3,400 files/s"),
+ * or an empty string until at least two polls have been observed for the active phase.
+ */
+const rateLabel = computed((): string => {
+	const s = scanState.value
+	const r = rates.value
+	if (!s || s.status !== "RUNNING" || !r) return ""
+	const parts: string[] = []
+	if (s.phase === "SCANNING") {
+		parts.push(`${formatRate(r.foldersPerSec)} ${language.get("folders/s")}`)
+		if (r.filesPerSec > 0) parts.push(`${formatRate(r.filesPerSec)} ${language.get("files/s")}`)
+	} else if (s.phase === "TAGGING") {
+		parts.push(`${formatRate(r.tagsPerSec)} ${language.get("files/s")}`)
+	}
+	return parts.join(" · ")
+})
+
+/**
+ * Returns the estimated number of seconds until the active phase finishes, based on the smoothed
+ * throughput and the remaining work, or null while a meaningful estimate cannot yet be made.
+ */
+const etaSeconds = computed((): number | null => {
+	const s = scanState.value
+	const r = rates.value
+	if (!s || s.status !== "RUNNING" || !r) return null
+	if (s.phase === "SCANNING" && s.totalFolders > 0 && r.foldersPerSec > 0) {
+		const done = s.foldersScanned + s.foldersSkipped
+		return Math.max(0, (s.totalFolders - done) / r.foldersPerSec)
+	}
+	if (s.phase === "TAGGING" && s.totalFiles > 0 && r.tagsPerSec > 0) {
+		return Math.max(0, (s.totalFiles - s.tagged) / r.tagsPerSec)
+	}
+	return null
+})
+
+/**
+ * Formats a per-second rate, using one decimal place for small rates and grouped integers above ten.
+ *
+ * @param perSec the rate in units per second
+ * @returns a compact human-readable rate string
+ */
+const formatRate = (perSec: number): string => {
+	if (perSec >= 10) return Math.round(perSec).toLocaleString()
+	return perSec.toFixed(1)
+}
+
+/**
+ * Formats a duration in seconds as a compact "Hh Mm" / "Mm Ss" / "Ss" string.
+ *
+ * @param totalSeconds the duration in seconds
+ * @returns a human-readable duration string
+ */
+const formatDuration = (totalSeconds: number): string => {
+	const secs = Math.max(0, Math.round(totalSeconds))
+	const h = Math.floor(secs / 3600)
+	const m = Math.floor((secs % 3600) / 60)
+	const s = secs % 60
+	if (h > 0) return `${h}h ${m}m`
+	if (m > 0) return `${m}m ${s}s`
+	return `${s}s`
+}
 
 /**
  * Formats an ISO 8601 timestamp string into a locale date-time string.
@@ -185,8 +290,22 @@ const formatDate = (iso: string): string => {
 				<small class="text-muted text-nowrap">{{ scanState.progressPercent }}%</small>
 			</div>
 
-			<!-- Phase detail: folders or files count -->
-			<p v-if="phaseDetail" class="small text-muted mb-3">{{ phaseDetail }}</p>
+			<!-- Phase detail: counts on the left, live throughput and ETA on the right -->
+			<div
+				v-if="scanState.status === 'RUNNING' && (phaseDetail || rateLabel || etaSeconds !== null)"
+				class="d-flex justify-content-between align-items-center gap-2 flex-wrap small text-muted mb-3"
+			>
+				<span>
+					<span v-if="phaseDetail">{{ phaseDetail }}</span>
+					<span v-if="rateLabel" :class="{ 'ms-2': phaseDetail }">
+						<span v-if="phaseDetail">· </span>{{ rateLabel }}
+					</span>
+				</span>
+				<span v-if="etaSeconds !== null" class="text-nowrap">
+					{{ language.get("ETA") }}: {{ formatDuration(etaSeconds) }}
+				</span>
+			</div>
+			<p v-else-if="phaseDetail" class="small text-muted mb-3">{{ phaseDetail }}</p>
 			<div v-else class="mb-3"></div>
 
 			<!-- Metrics grid -->
