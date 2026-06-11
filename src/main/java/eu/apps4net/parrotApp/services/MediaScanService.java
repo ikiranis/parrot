@@ -437,10 +437,14 @@ public class MediaScanService {
 	 * A single worker pool is created for the whole tagging phase and reused across every batch,
 	 * rather than being torn down and recreated per batch.
 	 *
-	 * The expensive untagged-count is computed only once — when the file scan finishes — to set an
-	 * accurate progress denominator for the remainder of the run; while the file scan is still
-	 * adding rows the denominator is kept ahead of the numerator from the batch sizes alone, so no
-	 * count query runs per iteration.
+	 * The progress denominator is set in three stages:
+	 * 1. Before the first batch: a one-time count of pre-existing untagged rows gives a non-zero
+	 *    baseline for re-scans where a previous run was interrupted before completing tagging.
+	 * 2. While the file scan is running: {@code initialUntagged + state.getAdded()} tracks the
+	 *    growing total so the frontend shows a meaningful ratio (e.g. "14,200 / 81,353") instead
+	 *    of the misleading "tagged + one-batch" figure that would otherwise result.
+	 * 3. When the file scan finishes: the remaining untagged rows are counted once to set an
+	 *    exact final denominator.
 	 *
 	 * @param state        job state for live counter updates, phase transitions, and error logging
 	 * @param fileScanDone flag set to {@code true} by Phase 2 when all directories have been processed
@@ -452,6 +456,18 @@ public class MediaScanService {
 		for (MediaKind kind : tagScanners.keySet()) {
 			watermark.put(kind, 0L);
 		}
+
+		// Count pre-existing untagged files once at startup. On a first scan this is near zero;
+		// on a re-scan after an interrupted previous run it can be large, and without this baseline
+		// the denominator would start at 0 and the display would be misleading until files are added.
+		long initialUntagged = 0;
+		for (MediaKind kind : tagScanners.keySet()) {
+			initialUntagged += mediaFileRepository.countByKindWithoutPhotoTag(kind);
+		}
+		if (initialUntagged > 0) {
+			state.setTotalFiles((int) initialUntagged);
+		}
+		final long baseline = initialUntagged;
 
 		try {
 			boolean finalTotalSet = false;
@@ -482,9 +498,11 @@ public class MediaScanService {
 					// Batch is ordered by ascending id, so the last element carries the highest id.
 					watermark.put(kind, batch.get(batch.size() - 1).getId());
 
-					// Keep the denominator ahead of the numerator while the file scan is still adding.
+					// While the file scan is still adding rows, track "pre-existing untagged + newly
+					// added this session" as the running denominator. This produces a meaningful ratio
+					// like "14,200 / 81,353" rather than "14,200 / 15,000" (tagged + one batch).
 					if (!finalTotalSet) {
-						state.setTotalFiles(Math.max(state.getTotalFiles(), state.getTagged() + batch.size()));
+						state.setTotalFiles((int) Math.max(state.getTotalFiles(), baseline + state.getAdded()));
 					}
 
 					processTagBatch(batch, entry.getValue(), state, executor, maxThreads);
