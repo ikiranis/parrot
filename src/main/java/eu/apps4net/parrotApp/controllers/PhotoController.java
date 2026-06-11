@@ -14,7 +14,6 @@ import org.springframework.web.bind.annotation.*;
 
 import eu.apps4net.parrotApp.exceptions.NotFoundException;
 import eu.apps4net.parrotApp.exceptions.ProcessingErrorException;
-import eu.apps4net.parrotApp.models.LibraryFolder;
 import eu.apps4net.parrotApp.models.MediaFile;
 import eu.apps4net.parrotApp.models.MediaKind;
 import eu.apps4net.parrotApp.models.PhotoDetailDTO;
@@ -24,7 +23,6 @@ import eu.apps4net.parrotApp.models.TagExportItemDTO;
 import eu.apps4net.parrotApp.models.Thumbnail;
 import eu.apps4net.parrotApp.repositories.MediaFileRepository;
 import eu.apps4net.parrotApp.repositories.PhotoTagRepository;
-import eu.apps4net.parrotApp.services.LibraryFolderService;
 import eu.apps4net.parrotApp.services.MediaScanService;
 import eu.apps4net.parrotApp.services.PhotoService;
 import eu.apps4net.parrotApp.services.ThumbnailService;
@@ -38,7 +36,6 @@ import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.sql.Types;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -62,9 +59,6 @@ public class PhotoController {
 	/** Repository for photo tag records linked to media files. */
 	private final PhotoTagRepository photoTagRepository;
 
-	/** Service for looking up library folders, used to resolve full paths during tag import/export. */
-	private final LibraryFolderService libraryFolderService;
-
 	/** Service for generating and retrieving thumbnails. */
 	private final ThumbnailService thumbnailService;
 
@@ -80,7 +74,6 @@ public class PhotoController {
 	 * @param mediaScanService    the media scanning service
 	 * @param mediaFileRepository the media file repository
 	 * @param photoTagRepository  the photo tag repository
-	 * @param libraryFolderService the library folder service
 	 * @param thumbnailService    the thumbnail service
 	 * @param photoService        the photo service
 	 * @param jdbcTemplate        the JDBC template
@@ -88,14 +81,12 @@ public class PhotoController {
 	public PhotoController(MediaScanService mediaScanService,
 						   MediaFileRepository mediaFileRepository,
 						   PhotoTagRepository photoTagRepository,
-						   LibraryFolderService libraryFolderService,
 						   ThumbnailService thumbnailService,
 						   PhotoService photoService,
 						   JdbcTemplate jdbcTemplate) {
 		this.mediaScanService = mediaScanService;
 		this.mediaFileRepository = mediaFileRepository;
 		this.photoTagRepository = photoTagRepository;
-		this.libraryFolderService = libraryFolderService;
 		this.thumbnailService = thumbnailService;
 		this.photoService = photoService;
 		this.jdbcTemplate = jdbcTemplate;
@@ -397,28 +388,15 @@ public class PhotoController {
 	}
 
 	/**
-	 * Imports tag data from a JSON payload and updates the matching records in the database.
-	 * Each item is matched by its full absolute path and filename. The path is resolved against
-	 * the configured library folders to find the relative path stored in the database.
-	 * A {@link PhotoTag} is created if none exists.
-	 * Only {@code rating} and {@code viewCount} fields are updated; all other metadata is preserved.
-	 *
-	 * @param items list of {@link TagExportItemDTO} entries to import
-	 * @return a map with keys {@code updated} (matched and saved) and {@code notFound} (unmatched entries)
-	 */
-	/**
-	 * Imports tag data from a JSON payload and updates the matching records in the database.
-	 * Each item is matched by its full absolute path and filename. The path is resolved against
-	 * the configured library folders to find the relative path stored in the database.
-	 * A {@link PhotoTag} is created if none exists.
+	 * Imports tag data from a JSON payload and updates the matching {@link PhotoTag} records.
+	 * Each item is matched by its full absolute path and filename.
+	 * Items with no existing {@link PhotoTag} are counted as not found and skipped.
 	 * Only {@code rating} and {@code viewCount} fields are updated; all other metadata is preserved.
 	 *
 	 * Performance strategy:
-	 * - Library folders are loaded once and matched in-memory.
-	 * - MediaFiles are fetched only for the exact filenames needed (not whole directories).
-	 * - Existing tag IDs are fetched as a lightweight ID-only projection.
-	 * - Writes bypass JPA entirely via {@link JdbcTemplate} batch statements, avoiding both
-	 *   IDENTITY-generation overhead on INSERTs and first-level cache dirty-checking on flush.
+	 * - A single JOIN query loads all existing photo tags into an in-memory map keyed by full path.
+	 * - Each item is resolved by a single O(1) map lookup — no per-file or per-directory DB round-trips.
+	 * - Writes bypass JPA entirely via {@link JdbcTemplate} batch UPDATE.
 	 *
 	 * @param items list of {@link TagExportItemDTO} entries to import
 	 * @return a map with keys {@code updated} (matched and saved) and {@code notFound} (unmatched entries)
@@ -426,81 +404,38 @@ public class PhotoController {
 	@PostMapping("tags/import")
 	@Transactional
 	public ResponseEntity<Map<String, Integer>> importTags(@RequestBody List<TagExportItemDTO> items) {
-		int updated = 0;
+		if (items.isEmpty()) {
+			return ResponseEntity.ok(Map.of("updated", 0, "notFound", 0));
+		}
+
+		// Load existing photo tags once: fullAbsolutePath → tagId
+		Map<String, Long> view = new HashMap<>();
+		jdbcTemplate.query(
+			"SELECT lf.path, mf.path, mf.filename, pt.id"
+				+ " FROM photo_tag pt"
+				+ " JOIN media_file mf ON pt.media_file_id = mf.id"
+				+ " JOIN library_folder lf ON mf.library_folder_id = lf.id",
+			rs -> {
+				String lfPath = rs.getString(1);
+				String mfPath = rs.getString(2);
+				String filename = rs.getString(3);
+				view.put(Paths.get(lfPath, mfPath, filename).toString(), rs.getLong(4));
+			}
+		);
+
+		record TagWrite(Long tagId, Integer rating, Long viewCount) {}
+		List<TagWrite> toUpdate = new ArrayList<>();
 		int notFound = 0;
 
-		// Load all library folders once; sort longest-first so the first prefix match is the deepest
-		List<LibraryFolder> libraryFolders = libraryFolderService.getAll();
-		libraryFolders.sort((a, b) -> Integer.compare(b.getPath().length(), a.getPath().length()));
-
-		// Resolve each item to its library folder and relative directory path in-memory
-		record ResolvedItem(TagExportItemDTO item, LibraryFolder lf, String relativePath) {}
-		List<ResolvedItem> resolved = new ArrayList<>();
 		for (TagExportItemDTO item : items) {
-			LibraryFolder lf = null;
-			for (LibraryFolder candidate : libraryFolders) {
-				if (item.getPath().equals(candidate.getPath()) || item.getPath().startsWith(candidate.getPath() + "/")) {
-					lf = candidate;
-					break;
-				}
-			}
-			if (lf == null) {
+			Long tagId = view.get(Paths.get(item.getPath(), item.getFilename()).toString());
+			if (tagId == null) {
 				notFound++;
 				continue;
 			}
-			String relativePath = Paths.get(lf.getPath()).relativize(Paths.get(item.getPath())).toString();
-			resolved.add(new ResolvedItem(item, lf, relativePath));
+			toUpdate.add(new TagWrite(tagId, item.getRating(), item.getViewCount()));
 		}
 
-		if (resolved.isEmpty()) {
-			return ResponseEntity.ok(Map.of("updated", updated, "notFound", notFound));
-		}
-
-		// Group by (lfId|relativePath); fetch only the specific filenames needed per directory
-		Map<String, List<ResolvedItem>> byDir = new HashMap<>();
-		for (ResolvedItem r : resolved) {
-			byDir.computeIfAbsent(r.lf().getId() + "|" + r.relativePath(), k -> new ArrayList<>()).add(r);
-		}
-
-		Map<String, Long> mediaFileIdByKey = new HashMap<>(); // (lfId|path|filename) -> mediaFileId
-		for (Map.Entry<String, List<ResolvedItem>> entry : byDir.entrySet()) {
-			ResolvedItem sample = entry.getValue().get(0);
-			List<String> filenames = entry.getValue().stream().map(r -> r.item().getFilename()).toList();
-			List<MediaFile> files = mediaFileRepository.findByLibraryFolderAndPathAndFilenameIn(
-					sample.lf(), sample.relativePath(), filenames);
-			for (MediaFile mf : files) {
-				mediaFileIdByKey.put(sample.lf().getId() + "|" + sample.relativePath() + "|" + mf.getFilename(), mf.getId());
-			}
-		}
-
-		// Lightweight ID-only lookup for existing PhotoTags — no full entities loaded
-		List<Long> matchedMediaFileIds = new ArrayList<>(mediaFileIdByKey.values());
-		Map<Long, Long> tagIdByMediaFileId = new HashMap<>(); // mediaFileId -> tagId
-		if (!matchedMediaFileIds.isEmpty()) {
-			for (Object[] row : photoTagRepository.findTagIdByMediaFileIdIn(matchedMediaFileIds)) {
-				tagIdByMediaFileId.put((Long) row[0], (Long) row[1]);
-			}
-		}
-
-		// Classify each resolved item as an INSERT or UPDATE
-		record TagWrite(Long mediaFileId, Long tagId, Integer rating, Long viewCount) {}
-		List<TagWrite> toUpdate = new ArrayList<>();
-		List<TagWrite> toInsert = new ArrayList<>();
-		for (ResolvedItem r : resolved) {
-			String key = r.lf().getId() + "|" + r.relativePath() + "|" + r.item().getFilename();
-			Long mediaFileId = mediaFileIdByKey.get(key);
-			if (mediaFileId == null) {
-				notFound++;
-				continue;
-			}
-			Long tagId = tagIdByMediaFileId.get(mediaFileId);
-			TagWrite tw = new TagWrite(mediaFileId, tagId, r.item().getRating(), r.item().getViewCount());
-			if (tagId != null) toUpdate.add(tw);
-			else toInsert.add(tw);
-			updated++;
-		}
-
-		// Batch UPDATE existing tags via JDBC — bypasses JPA dirty-check overhead
 		if (!toUpdate.isEmpty()) {
 			jdbcTemplate.batchUpdate(
 				"UPDATE photo_tag SET rating = ?, view_count = ?, date_updated = CURRENT_TIMESTAMP WHERE id = ?",
@@ -518,25 +453,6 @@ public class PhotoController {
 			);
 		}
 
-		// Batch INSERT new tags via JDBC — bypasses IDENTITY-generation single-row overhead
-		if (!toInsert.isEmpty()) {
-			jdbcTemplate.batchUpdate(
-				"INSERT INTO photo_tag (media_file_id, view_count, rating, date_created, date_updated)"
-					+ " VALUES (?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
-				new BatchPreparedStatementSetter() {
-					@Override
-					public void setValues(PreparedStatement ps, int i) throws SQLException {
-						TagWrite tw = toInsert.get(i);
-						ps.setLong(1, tw.mediaFileId());
-						ps.setLong(2, tw.viewCount() != null ? tw.viewCount() : 0L);
-						if (tw.rating() != null) ps.setInt(3, tw.rating()); else ps.setNull(3, Types.INTEGER);
-					}
-					@Override
-					public int getBatchSize() { return toInsert.size(); }
-				}
-			);
-		}
-
-		return ResponseEntity.ok(Map.of("updated", updated, "notFound", notFound));
+		return ResponseEntity.ok(Map.of("updated", toUpdate.size(), "notFound", notFound));
 	}
 }
