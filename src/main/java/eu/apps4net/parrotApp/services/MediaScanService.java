@@ -42,7 +42,6 @@ import java.util.concurrent.RecursiveAction;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 /**
  * Service that recursively scans a server-side directory for media files and
@@ -93,6 +92,15 @@ public class MediaScanService {
 	 * smaller statements rather than one oversized one.
 	 */
 	private static final int EXISTENCE_QUERY_CHUNK_SIZE = 500;
+
+	/**
+	 * Number of rows inserted per flush in Phase 2. A directory's new files are saved in batches of
+	 * this size instead of one statement for the whole directory, so that the {@code insertLock} is
+	 * held only briefly at a time. This keeps a single very large folder from blocking every other
+	 * worker's inserts for the entire folder, which otherwise stalls throughput and then makes the
+	 * Added counter jump in one big step when the folder finally commits.
+	 */
+	private static final int INSERT_FLUSH_SIZE = 1000;
 
 	/** Supported image file extensions (lower-case, without the leading dot). */
 	private static final Set<String> IMAGE_EXTENSIONS = Set.of(
@@ -328,8 +336,9 @@ public class MediaScanService {
 			}
 			try {
 				CollectResult collected = collectLeafDirs(root, maxThreads);
-				for (Path leafDir : collected.leafDirs()) {
-					allLeafDirs.add(new LeafDirEntry(leafDir, root, lf));
+				for (LeafDirInfo info : collected.leafDirs()) {
+					allLeafDirs.add(new LeafDirEntry(
+							info.dir(), root, lf, info.fileCount(), info.totalBytes(), info.mediaCount()));
 				}
 				totalMediaFiles += collected.mediaCount();
 			} catch (Exception e) {
@@ -376,39 +385,23 @@ public class MediaScanService {
 	}
 
 	/**
-	 * Phase 2 (background) — processes a single leaf directory: lists its direct regular files
-	 * once (capturing their total byte size for change detection), asks
-	 * {@link FolderService#checkAndSaveFolder} whether the directory changed, and either records
-	 * it as skipped or saves its new media files and marks it finished.
+	 * Phase 2 (background) — processes a single leaf directory using the file counts already
+	 * captured during the Phase 1 walk: asks {@link FolderService#checkAndSaveFolder} whether the
+	 * directory changed (without re-stating its files), and either records it as skipped or saves
+	 * its new media files and marks it finished. An unchanged directory therefore touches no files
+	 * on disk at all.
 	 *
-	 * @param entry            the leaf directory entry to process
+	 * @param entry            the leaf directory entry, including its Phase 1 tallies
 	 * @param state            job state for live counter updates and error logging
 	 * @param ensuredAncestors per-scan cache of ancestor folders already ensured
 	 */
 	private void processLeafDir(LeafDirEntry entry, ScanJobState state, Set<String> ensuredAncestors) {
 		Path leafDir = entry.leafDir();
 
-		List<Path> files;
-		long totalBytes;
-		try {
-			try (Stream<Path> listing = Files.list(leafDir)) {
-				files = listing.filter(Files::isRegularFile).collect(Collectors.toList());
-			}
-			long sum = 0L;
-			for (Path file : files) {
-				sum += Files.size(file);
-			}
-			totalBytes = sum;
-		} catch (IOException e) {
-			state.incrementErrors();
-			state.addErrorLog("Failed to list directory: " + leafDir + " — " + e.getMessage());
-			return;
-		}
-
 		boolean hasChanges;
 		try {
-			hasChanges = folderService.checkAndSaveFolder(
-					leafDir, entry.root(), entry.libraryFolder(), files.size(), totalBytes, ensuredAncestors);
+			hasChanges = folderService.checkAndSaveFolder(leafDir, entry.root(), entry.libraryFolder(),
+					entry.fileCount(), entry.totalBytes(), ensuredAncestors);
 		} catch (Exception e) {
 			state.incrementErrors();
 			state.addErrorLog("Folder check failed: " + leafDir + " — " + e.getMessage());
@@ -417,12 +410,12 @@ public class MediaScanService {
 
 		if (!hasChanges) {
 			state.incrementFoldersSkipped();
-			state.addSkipped(countMediaFiles(files));
+			state.addSkipped(entry.mediaCount());
 			return;
 		}
 
 		state.incrementFoldersScanned();
-		saveDirectoryFiles(files, leafDir, entry.libraryFolder(), entry.root(), state);
+		saveDirectoryFiles(leafDir, entry.libraryFolder(), entry.root(), state);
 		String relativePath = entry.root().relativize(leafDir).toString();
 		folderService.markFinished(entry.libraryFolder(), relativePath);
 	}
@@ -581,7 +574,7 @@ public class MediaScanService {
 
 		ScanContext ctx = new ScanContext(libraryFolder, jobState);
 
-		List<Path> leafDirs = collectLeafDirs(root, settingService.getMaxThreads()).leafDirs();
+		List<LeafDirInfo> leafDirs = collectLeafDirs(root, settingService.getMaxThreads()).leafDirs();
 
 		scanLeafDirectories(leafDirs, ctx);
 		leafDirs.clear();
@@ -614,7 +607,7 @@ public class MediaScanService {
 	 * @return the leaf directories and the on-disk media file count discovered under {@code root}
 	 */
 	private CollectResult collectLeafDirs(Path root, int maxThreads) {
-		List<Path> leafDirs = Collections.synchronizedList(new ArrayList<>());
+		List<LeafDirInfo> leafDirs = Collections.synchronizedList(new ArrayList<>());
 		AtomicInteger mediaCount = new AtomicInteger(0);
 
 		ForkJoinPool pool = new ForkJoinPool(Math.max(1, maxThreads));
@@ -644,10 +637,10 @@ public class MediaScanService {
 	 * For each directory, delegates to {@link FolderService#checkAndSaveFolder}; changed
 	 * directories have their direct regular files scanned and saved.
 	 *
-	 * @param leafDirs directories to process
+	 * @param leafDirs directories to process, each with its Phase 1 tallies
 	 * @param ctx      mutable scan state shared across all threads
 	 */
-	private void scanLeafDirectories(List<Path> leafDirs, ScanContext ctx) {
+	private void scanLeafDirectories(List<LeafDirInfo> leafDirs, ScanContext ctx) {
 		int total = leafDirs.size();
 		if (total == 0) return;
 
@@ -672,36 +665,22 @@ public class MediaScanService {
 	}
 
 	/**
-	 * Phase 2 (synchronous) — processes a single leaf directory: lists its direct regular files
-	 * once (capturing their total byte size for change detection), asks
-	 * {@link FolderService#checkAndSaveFolder} whether the directory changed, and either records
-	 * it as skipped or scans and saves its new media files and marks it finished.
+	 * Phase 2 (synchronous) — processes a single leaf directory using the file counts captured
+	 * during the Phase 1 walk: asks {@link FolderService#checkAndSaveFolder} whether the directory
+	 * changed (without re-stating its files), and either records it as skipped or scans and saves
+	 * its new media files and marks it finished.
 	 *
-	 * @param leafDir          the leaf directory to process
+	 * @param info             the leaf directory and its Phase 1 tallies
 	 * @param ctx              mutable scan state shared across all threads
 	 * @param ensuredAncestors per-scan cache of ancestor folders already ensured
 	 */
-	private void processLeafDir(Path leafDir, ScanContext ctx, Set<String> ensuredAncestors) {
-		List<Path> files;
-		long totalBytes;
-		try {
-			try (Stream<Path> listing = Files.list(leafDir)) {
-				files = listing.filter(Files::isRegularFile).collect(Collectors.toList());
-			}
-			long sum = 0L;
-			for (Path file : files) {
-				sum += Files.size(file);
-			}
-			totalBytes = sum;
-		} catch (IOException e) {
-			ctx.incrementErrors("Failed to list directory: " + leafDir, e.getMessage());
-			return;
-		}
+	private void processLeafDir(LeafDirInfo info, ScanContext ctx, Set<String> ensuredAncestors) {
+		Path leafDir = info.dir();
 
 		boolean hasChanges;
 		try {
 			hasChanges = folderService.checkAndSaveFolder(
-					leafDir, ctx.root, ctx.libraryFolder, files.size(), totalBytes, ensuredAncestors);
+					leafDir, ctx.root, ctx.libraryFolder, info.fileCount(), info.totalBytes(), ensuredAncestors);
 		} catch (Exception e) {
 			ctx.incrementErrors("Folder check failed: " + leafDir, e.getMessage());
 			return;
@@ -709,12 +688,12 @@ public class MediaScanService {
 
 		if (!hasChanges) {
 			ctx.incrementFoldersSkipped();
-			ctx.addSkipped(countMediaFiles(files));
+			ctx.addSkipped(info.mediaCount());
 			return;
 		}
 
 		ctx.incrementFoldersScanned();
-		scanDirectoryFiles(files, leafDir, ctx);
+		scanDirectoryFiles(leafDir, ctx);
 		String relativePath = ctx.root.relativize(leafDir).toString();
 		folderService.markFinished(ctx.libraryFolder, relativePath);
 	}
@@ -774,20 +753,24 @@ public class MediaScanService {
 	 * {@code saveAll()} call so that N files become 1 SELECT + 1 transaction instead of
 	 * N individual SELECTs + N individual transactions.
 	 *
-	 * @param files   regular files in the directory
 	 * @param leafDir the directory being scanned
 	 * @param ctx     mutable scan state updated as files are processed
 	 */
-	private void scanDirectoryFiles(List<Path> files, Path leafDir, ScanContext ctx) {
+	private void scanDirectoryFiles(Path leafDir, ScanContext ctx) {
 		String relativePath = ctx.root.relativize(leafDir).toString();
 
-		// Resolve the media files present on disk in this directory, keyed by filename, so the
-		// existence check can probe the DB by exactly these names rather than scanning the folder.
+		// List the media files present on disk in this directory, keyed by filename, matched by
+		// extension so the listing needs no per-file stat (Phase 1 already stat'd them).
 		Map<String, Path> mediaByName = new LinkedHashMap<>();
-		for (Path filePath : files) {
-			if (resolveKind(filePath).isPresent()) {
-				mediaByName.put(filePath.getFileName().toString(), filePath);
+		try (DirectoryStream<Path> entries = Files.newDirectoryStream(leafDir)) {
+			for (Path entry : entries) {
+				if (resolveKind(entry).isPresent()) {
+					mediaByName.put(entry.getFileName().toString(), entry);
+				}
 			}
+		} catch (IOException e) {
+			ctx.incrementErrors("Failed to list directory: " + leafDir, e.getMessage());
+			return;
 		}
 		if (mediaByName.isEmpty()) return;
 
@@ -826,30 +809,25 @@ public class MediaScanService {
 	 * new rows via JDBC so that no entities are loaded into the JPA persistence context.
 	 * Phase 3 re-queries the DB for untagged records, so no entry tracking is needed here.
 	 *
-	 * @param files         regular files in the directory
+	 * New rows are flushed to the database in batches of {@link #INSERT_FLUSH_SIZE} rather than one
+	 * statement for the whole directory, so the Added counter advances steadily and a single huge
+	 * folder never holds the insert lock long enough to stall the other worker threads.
+	 *
 	 * @param leafDir       the directory being scanned
 	 * @param libraryFolder the library folder this directory belongs to
 	 * @param root          the library folder root path, used to compute the relative path
 	 * @param state         job state for counter updates and error logging
 	 */
-	private void saveDirectoryFiles(List<Path> files, Path leafDir, LibraryFolder libraryFolder,
-									Path root, ScanJobState state) {
+	private void saveDirectoryFiles(Path leafDir, LibraryFolder libraryFolder, Path root, ScanJobState state) {
 		String relativePath = root.relativize(leafDir).toString();
 
-		// Resolve the media files present on disk in this directory, keyed by filename, so the
-		// existence check can probe the DB by exactly these names rather than scanning the folder.
-		Map<String, MediaKind> mediaByName = new LinkedHashMap<>();
-		for (Path filePath : files) {
-			Optional<MediaKind> kindOpt = resolveKind(filePath);
-			if (kindOpt.isEmpty()) continue;
-			mediaByName.put(filePath.getFileName().toString(), kindOpt.get());
-		}
+		Map<String, MediaKind> mediaByName = listMediaFilenames(leafDir, state);
 		if (mediaByName.isEmpty()) return;
 
 		Set<String> existing = existingMediaFilenames(
 				libraryFolder, relativePath, new ArrayList<>(mediaByName.keySet()));
 
-		List<Object[]> rows = new ArrayList<>();
+		List<Object[]> batch = new ArrayList<>(INSERT_FLUSH_SIZE);
 		int skipped = 0;
 
 		for (Map.Entry<String, MediaKind> media : mediaByName.entrySet()) {
@@ -857,12 +835,27 @@ public class MediaScanService {
 				skipped++;
 				continue;
 			}
-			rows.add(new Object[]{libraryFolder.getId(), relativePath, media.getKey(), null, media.getValue().name()});
+			batch.add(new Object[]{libraryFolder.getId(), relativePath, media.getKey(), null, media.getValue().name()});
+			if (batch.size() >= INSERT_FLUSH_SIZE) {
+				flushInsertBatch(batch, relativePath, state);
+				batch.clear();
+			}
 		}
 
+		if (!batch.isEmpty()) flushInsertBatch(batch, relativePath, state);
 		if (skipped > 0) state.addSkipped(skipped);
-		if (rows.isEmpty()) return;
+	}
 
+	/**
+	 * Inserts one batch of media-file rows under the {@link #insertLock} and reports the count.
+	 * The lock is held only for the duration of this batch so that concurrent workers can
+	 * interleave their own batches between flushes.
+	 *
+	 * @param rows         the rows to insert; not modified
+	 * @param relativePath the directory's relative path, for error messages
+	 * @param state        job state for counter updates and error logging
+	 */
+	private void flushInsertBatch(List<Object[]> rows, String relativePath, ScanJobState state) {
 		try {
 			synchronized (insertLock) {
 				jdbcTemplate.batchUpdate(
@@ -875,6 +868,29 @@ public class MediaScanService {
 			state.addErrors(rows.size());
 			state.addErrorLog("Batch save failed for: " + relativePath + " — " + e.getMessage());
 		}
+	}
+
+	/**
+	 * Lists the media files directly in {@code leafDir}, keyed by filename and mapped to their
+	 * {@link MediaKind}. Entries are matched by file extension via {@link #resolveKind}, so this
+	 * performs a single directory read with no per-file {@code stat}; the directory's files were
+	 * already stat'd once during the Phase 1 walk.
+	 *
+	 * @param leafDir the directory to list
+	 * @param state   job state for error logging if the directory cannot be read
+	 * @return a map of media filename to kind, preserving directory order; empty on read failure
+	 */
+	private Map<String, MediaKind> listMediaFilenames(Path leafDir, ScanJobState state) {
+		Map<String, MediaKind> mediaByName = new LinkedHashMap<>();
+		try (DirectoryStream<Path> entries = Files.newDirectoryStream(leafDir)) {
+			for (Path entry : entries) {
+				resolveKind(entry).ifPresent(kind -> mediaByName.put(entry.getFileName().toString(), kind));
+			}
+		} catch (IOException e) {
+			state.incrementErrors();
+			state.addErrorLog("Failed to list directory: " + leafDir + " — " + e.getMessage());
+		}
+		return mediaByName;
 	}
 
 	/**
@@ -893,22 +909,6 @@ public class MediaScanService {
 		if (VIDEO_EXTENSIONS.contains(ext)) return Optional.of(MediaKind.VIDEO);
 		if (AUDIO_EXTENSIONS.contains(ext)) return Optional.of(MediaKind.AUDIO);
 		return Optional.empty();
-	}
-
-	/**
-	 * Counts how many of the given files map to a known {@link MediaKind} by extension,
-	 * without any filesystem or database access. Used when a folder is skipped to report
-	 * its already-listed files as skipped.
-	 *
-	 * @param files the already-listed direct regular files of a directory
-	 * @return count of files whose extension maps to a known {@link MediaKind}
-	 */
-	private int countMediaFiles(List<Path> files) {
-		int count = 0;
-		for (Path file : files) {
-			if (resolveKind(file).isPresent()) count++;
-		}
-		return count;
 	}
 
 	/**
@@ -1062,13 +1062,26 @@ public class MediaScanService {
 	}
 
 	/**
-	 * Result of a single Phase 1 directory walk: the leaf directories discovered and the
-	 * total number of media files (by extension) found beneath the walked root.
+	 * Result of a single Phase 1 directory walk: the leaf directories discovered (each with the
+	 * file counts captured during the walk) and the total number of media files (by extension)
+	 * found beneath the walked root.
 	 *
 	 * @param leafDirs   directories that contain at least one direct regular file
 	 * @param mediaCount total count of files whose extension maps to a known {@link MediaKind}
 	 */
-	private record CollectResult(List<Path> leafDirs, int mediaCount) {}
+	private record CollectResult(List<LeafDirInfo> leafDirs, int mediaCount) {}
+
+	/**
+	 * A leaf directory together with the per-directory tallies captured during the Phase 1 walk.
+	 * Carrying these forward lets Phase 2 run its change detection (and skip-accounting) without a
+	 * second pass over the directory's files, since the walk already stat'd every entry.
+	 *
+	 * @param dir        the leaf directory
+	 * @param fileCount  number of direct regular files in the directory
+	 * @param totalBytes total byte size of the direct regular files (for the change-detection hash)
+	 * @param mediaCount number of direct files whose extension maps to a known {@link MediaKind}
+	 */
+	private record LeafDirInfo(Path dir, int fileCount, long totalBytes, int mediaCount) {}
 
 	/**
 	 * Fork/join task that walks a single directory during Phase 1: it lists the directory's direct
@@ -1081,8 +1094,8 @@ public class MediaScanService {
 		/** The directory this task is responsible for walking. */
 		private final Path dir;
 
-		/** Shared, thread-safe sink for directories found to contain at least one direct file. */
-		private final List<Path> leafDirs;
+		/** Shared, thread-safe sink for leaf directories (with their per-directory tallies). */
+		private final List<LeafDirInfo> leafDirs;
 
 		/** Shared counter of media files (by extension) discovered across the whole walk. */
 		private final AtomicInteger mediaCount;
@@ -1092,7 +1105,7 @@ public class MediaScanService {
 		 * @param leafDirs   shared sink for discovered leaf directories
 		 * @param mediaCount shared media-file counter
 		 */
-		DirectoryWalkTask(Path dir, List<Path> leafDirs, AtomicInteger mediaCount) {
+		DirectoryWalkTask(Path dir, List<LeafDirInfo> leafDirs, AtomicInteger mediaCount) {
 			this.dir = dir;
 			this.leafDirs = leafDirs;
 			this.mediaCount = mediaCount;
@@ -1100,7 +1113,9 @@ public class MediaScanService {
 
 		@Override
 		protected void compute() {
-			boolean hasDirectFile = false;
+			int fileCount = 0;
+			long totalBytes = 0L;
+			int dirMediaCount = 0;
 			List<DirectoryWalkTask> subtasks = new ArrayList<>();
 
 			try (DirectoryStream<Path> entries = Files.newDirectoryStream(dir)) {
@@ -1118,9 +1133,10 @@ public class MediaScanService {
 						}
 						subtasks.add(new DirectoryWalkTask(entry, leafDirs, mediaCount));
 					} else if (attrs.isRegularFile()) {
-						hasDirectFile = true;
+						fileCount++;
+						totalBytes += attrs.size();
 						if (resolveKind(entry).isPresent()) {
-							mediaCount.incrementAndGet();
+							dirMediaCount++;
 						}
 					}
 				}
@@ -1129,22 +1145,28 @@ public class MediaScanService {
 				return;
 			}
 
-			if (hasDirectFile) {
-				leafDirs.add(dir);
+			if (fileCount > 0) {
+				leafDirs.add(new LeafDirInfo(dir, fileCount, totalBytes, dirMediaCount));
+				mediaCount.addAndGet(dirMediaCount);
 			}
 			invokeAll(subtasks);
 		}
 	}
 
 	/**
-	 * Associates a leaf directory with the library folder and root path it belongs to.
-	 * Used during Phase 1 to preserve the context needed by Phase 2 and Phase 3.
+	 * Associates a leaf directory with the library folder and root path it belongs to, plus the
+	 * per-directory tallies captured during the Phase 1 walk.
+	 * Used to carry the context Phase 2 and Phase 3 need without re-stating the directory.
 	 *
 	 * @param leafDir       the leaf directory containing media files
 	 * @param root          the library folder root path
 	 * @param libraryFolder the library folder entity this leaf directory belongs to
+	 * @param fileCount     number of direct regular files in the directory
+	 * @param totalBytes    total byte size of the direct regular files (for the change-detection hash)
+	 * @param mediaCount    number of direct files whose extension maps to a known {@link MediaKind}
 	 */
-	private record LeafDirEntry(Path leafDir, Path root, LibraryFolder libraryFolder) {}
+	private record LeafDirEntry(Path leafDir, Path root, LibraryFolder libraryFolder,
+								int fileCount, long totalBytes, int mediaCount) {}
 
 	/**
 	 * Intermediate container used during Phase 2 to associate a persisted

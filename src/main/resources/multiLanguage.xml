@@ -436,6 +436,11 @@
         <language code="el">Εκτιμώμενος χρόνος</language>
     </entry>
 
+    <entry id="Elapsed">
+        <language code="en">Elapsed</language>
+        <language code="el">Παρελθών χρόνος</language>
+    </entry>
+
     <entry id="Library total">
         <language code="en">Library total</language>
         <language code="el">Σύνολο βιβλιοθήκης</language>

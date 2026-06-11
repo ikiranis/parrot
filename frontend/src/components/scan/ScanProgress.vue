@@ -15,6 +15,10 @@ const errorMessage = ref("")
 const showErrorLogs = ref(false)
 let pollTimer: ReturnType<typeof setInterval> | null = null
 
+/** Current wall-clock time, ticked every second while a scan runs so elapsed time updates live. */
+const nowMs = ref(Date.now())
+let tickTimer: ReturnType<typeof setInterval> | null = null
+
 /** Previous poll sample, used to derive throughput from the delta to the current sample. */
 const prevSample = ref<{ t: number; folders: number; added: number; tagged: number } | null>(null)
 
@@ -72,6 +76,11 @@ const fetchStatus = async () => {
 }
 
 const startPolling = () => {
+	if (tickTimer === null) {
+		tickTimer = setInterval(() => {
+			nowMs.value = Date.now()
+		}, 1_000)
+	}
 	if (pollTimer !== null) return
 	pollTimer = setInterval(async () => {
 		try {
@@ -89,6 +98,10 @@ const stopPolling = () => {
 	if (pollTimer !== null) {
 		clearInterval(pollTimer)
 		pollTimer = null
+	}
+	if (tickTimer !== null) {
+		clearInterval(tickTimer)
+		tickTimer = null
 	}
 }
 
@@ -200,6 +213,17 @@ const etaSeconds = computed((): number | null => {
 })
 
 /**
+ * Returns the number of seconds elapsed since the scan started, counting up to the present while
+ * the scan runs and frozen at the finish time once it completes, or null when no scan is active.
+ */
+const elapsedSeconds = computed((): number | null => {
+	const s = scanState.value
+	if (!s || !s.startedAt) return null
+	const end = s.completedAt ? new Date(s.completedAt).getTime() : nowMs.value
+	return Math.max(0, (end - new Date(s.startedAt).getTime()) / 1000)
+})
+
+/**
  * Formats a per-second rate, using one decimal place for small rates and grouped integers above ten.
  *
  * @param perSec the rate in units per second
@@ -290,9 +314,9 @@ const formatDate = (iso: string): string => {
 				<small class="text-muted text-nowrap">{{ scanState.progressPercent }}%</small>
 			</div>
 
-			<!-- Phase detail: counts on the left, live throughput and ETA on the right -->
+			<!-- Phase detail: counts on the left, live throughput, elapsed time and ETA on the right -->
 			<div
-				v-if="scanState.status === 'RUNNING' && (phaseDetail || rateLabel || etaSeconds !== null)"
+				v-if="scanState.status === 'RUNNING'"
 				class="d-flex justify-content-between align-items-center gap-2 flex-wrap small text-muted mb-3"
 			>
 				<span>
@@ -301,8 +325,13 @@ const formatDate = (iso: string): string => {
 						<span v-if="phaseDetail">· </span>{{ rateLabel }}
 					</span>
 				</span>
-				<span v-if="etaSeconds !== null" class="text-nowrap">
-					{{ language.get("ETA") }}: {{ formatDuration(etaSeconds) }}
+				<span class="text-nowrap">
+					<span v-if="elapsedSeconds !== null">
+						{{ language.get("Elapsed") }}: {{ formatDuration(elapsedSeconds) }}
+					</span>
+					<span v-if="etaSeconds !== null" :class="{ 'ms-2': elapsedSeconds !== null }">
+						<span v-if="elapsedSeconds !== null">· </span>{{ language.get("ETA") }}: {{ formatDuration(etaSeconds) }}
+					</span>
 				</span>
 			</div>
 			<p v-else-if="phaseDetail" class="small text-muted mb-3">{{ phaseDetail }}</p>
