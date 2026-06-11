@@ -1,13 +1,17 @@
 <script setup lang="ts">
-import { ref, Ref, computed, onMounted } from "vue"
+import { ref, Ref, computed, watch, nextTick, onMounted, onUnmounted } from "vue"
 import { language } from "@/functions/languageStore.ts"
 import { errorStore } from "@/components/error/errorStore.ts"
 import { createPhotoThumbnail } from "@/api/photo.ts"
-import { getFoldersByLevel, getFolderChildren, getFolderPhotos, getThumbnailUrl, createFolderThumbnail } from "@/api/folder.ts"
+import { getFoldersByLevel, getFolderChildren, getFolderPhotosPage, getThumbnailUrl, createFolderThumbnail } from "@/api/folder.ts"
 import { MediaFile, Folder } from "@/types"
 import Error from "@/components/error/Error.vue"
 import Loading from "@/components/utilities/Loading.vue"
 import PhotoDetail from "@/components/PhotoDetail.vue"
+
+const PAGE_SIZE = 50
+/** Larger initial fetch for root-level photos, which are rarely paginated. */
+const ROOT_PAGE_SIZE = 200
 
 const loading = ref(false)
 const selectedPhotoId: Ref<number | null> = ref(null)
@@ -24,9 +28,67 @@ const loadingThumbnails: Ref<Set<number>> = ref(new Set())
 /** Set of folder ids currently awaiting thumbnail generation. */
 const loadingFolderThumbnails: Ref<Set<number>> = ref(new Set())
 
+/** ID of the folder whose photos are currently paginated; null at root. */
+const currentFolderId: Ref<number | null> = ref(null)
+
+/** Zero-based index of the last page loaded for the current folder. */
+const currentPage: Ref<number> = ref(0)
+
+/** Total number of photos in the current folder as reported by the API. */
+const totalPhotosCount: Ref<number> = ref(0)
+
+/** Whether more pages are available for the current folder. */
+const hasMorePhotos: Ref<boolean> = ref(false)
+
+/** True while a subsequent page is being fetched (not the initial load). */
+const loadingMore: Ref<boolean> = ref(false)
+
+/** Sentinel element at the bottom of the grid; observed to trigger page loads. */
+const sentinelRef: Ref<HTMLElement | null> = ref(null)
+
+let intersectionObserver: IntersectionObserver | null = null
+
 onMounted(() => {
 	loadRoot()
 })
+
+onUnmounted(() => {
+	intersectionObserver?.disconnect()
+})
+
+/** Sets up IntersectionObserver on the sentinel after a tick so the DOM is ready. */
+const setupObserver = () => {
+	intersectionObserver?.disconnect()
+	intersectionObserver = null
+	nextTick(() => {
+		if (!sentinelRef.value) return
+		intersectionObserver = new IntersectionObserver(
+			entries => { if (entries[0].isIntersecting) loadMorePhotos() },
+			{ rootMargin: "200px" }
+		)
+		intersectionObserver.observe(sentinelRef.value)
+	})
+}
+
+watch(hasMorePhotos, val => {
+	if (val) setupObserver()
+	else {
+		intersectionObserver?.disconnect()
+		intersectionObserver = null
+	}
+})
+
+/** Resets all photo-pagination state and disconnects the observer. */
+const resetPhotoState = () => {
+	displayPhotos.value = []
+	loadingThumbnails.value = new Set()
+	hasMorePhotos.value = false
+	currentFolderId.value = null
+	currentPage.value = 0
+	totalPhotosCount.value = 0
+	intersectionObserver?.disconnect()
+	intersectionObserver = null
+}
 
 /** Returns the display name for a folder (last path segment). */
 const folderName = (folder: Folder): string => {
@@ -35,20 +97,29 @@ const folderName = (folder: Folder): string => {
 }
 
 /**
- * Loads children folders and direct photos for the given folder in parallel,
+ * Loads the first page of children folders and direct photos for the given folder,
  * then triggers thumbnail generation for any items missing one.
  *
  * @param folder the folder whose contents to load
  */
 const loadFolderContent = async (folder: Folder) => {
-	const [children, photos] = await Promise.all([
+	currentFolderId.value = folder.id
+	currentPage.value = 0
+
+	const [children, photosPage] = await Promise.all([
 		getFolderChildren(folder.id).catch((e: unknown) => { handleError(e); return [] as Folder[] }),
-		getFolderPhotos(folder.id).catch((e: unknown) => { handleError(e); return [] as MediaFile[] })
+		getFolderPhotosPage(folder.id, 0, PAGE_SIZE).catch((e: unknown) => { handleError(e); return null })
 	])
+
 	displayFolders.value = children
-	displayPhotos.value = photos
 	generateMissingFolderThumbnails(children)
-	generateMissingThumbnails(photos)
+
+	if (photosPage) {
+		displayPhotos.value = photosPage.content
+		totalPhotosCount.value = photosPage.totalElements
+		hasMorePhotos.value = !photosPage.last
+		generateMissingThumbnails(photosPage.content)
+	}
 }
 
 /** Loads the top-level folders and the photos sitting directly in the library root. */
@@ -56,9 +127,8 @@ const loadRoot = async () => {
 	loading.value = true
 	folderStack.value = []
 	displayFolders.value = []
-	displayPhotos.value = []
-	loadingThumbnails.value = new Set()
 	loadingFolderThumbnails.value = new Set()
+	resetPhotoState()
 
 	// The library root directory itself is persisted as a folder with an empty path.
 	// Depending on how the scan computes nesting levels it can land at level 0 or level 1,
@@ -76,9 +146,14 @@ const loadRoot = async () => {
 	generateMissingFolderThumbnails(folders)
 
 	const photoArrays = await Promise.all(
-		rootContainers.map(f => getFolderPhotos(f.id).catch(() => [] as MediaFile[]))
+		rootContainers.map(f =>
+			getFolderPhotosPage(f.id, 0, ROOT_PAGE_SIZE)
+				.then(p => p.content)
+				.catch(() => [] as MediaFile[])
+		)
 	)
 	displayPhotos.value = photoArrays.flat()
+	totalPhotosCount.value = displayPhotos.value.length
 	generateMissingThumbnails(displayPhotos.value)
 
 	loading.value = false
@@ -92,9 +167,8 @@ const navigateInto = async (folder: Folder) => {
 	loading.value = true
 	folderStack.value = [...folderStack.value, folder]
 	displayFolders.value = []
-	displayPhotos.value = []
-	loadingThumbnails.value = new Set()
 	loadingFolderThumbnails.value = new Set()
+	resetPhotoState()
 
 	await loadFolderContent(folder)
 
@@ -114,13 +188,36 @@ const navigateTo = async (stackIndex: number) => {
 	folderStack.value = folderStack.value.slice(0, stackIndex + 1)
 	loading.value = true
 	displayFolders.value = []
-	displayPhotos.value = []
-	loadingThumbnails.value = new Set()
 	loadingFolderThumbnails.value = new Set()
+	resetPhotoState()
 
 	await loadFolderContent(target)
 
 	loading.value = false
+}
+
+/** Loads the next page of photos for the current folder and appends them to the grid. */
+const loadMorePhotos = async () => {
+	if (!hasMorePhotos.value || loadingMore.value || currentFolderId.value === null) return
+	loadingMore.value = true
+	const nextPage = currentPage.value + 1
+	try {
+		const response = await getFolderPhotosPage(currentFolderId.value, nextPage, PAGE_SIZE)
+		displayPhotos.value = [...displayPhotos.value, ...response.content]
+		currentPage.value = nextPage
+		hasMorePhotos.value = !response.last
+		generateMissingThumbnails(response.content)
+	} catch (e) {
+		handleError(e)
+	} finally {
+		loadingMore.value = false
+		// If sentinel is still visible after DOM update, keep loading pages.
+		nextTick(() => {
+			if (!hasMorePhotos.value || !sentinelRef.value) return
+			const rect = sentinelRef.value.getBoundingClientRect()
+			if (rect.top < window.innerHeight + 200) loadMorePhotos()
+		})
+	}
 }
 
 /**
@@ -246,8 +343,10 @@ const goToNextPhoto = () => {
 					{{ language.get("No folders found. Scan a folder to import photos.") }}
 				</div>
 				<div v-else>
-					<div v-if="displayPhotos.length > 0" class="text-muted small mb-2">
-						{{ displayPhotos.length }} {{ language.get("photos") }}
+					<div v-if="totalPhotosCount > 0" class="text-muted small mb-2">
+						{{ displayPhotos.length }}
+						<template v-if="hasMorePhotos">/ {{ totalPhotosCount }}</template>
+						{{ language.get("photos") }}
 					</div>
 					<div class="row row-cols-2 row-cols-sm-3 row-cols-md-4 row-cols-lg-5 row-cols-xl-6 g-3">
 
@@ -316,6 +415,13 @@ const goToNextPhoto = () => {
 									</div>
 								</div>
 								<div class="media-name">{{ photo.filename }}</div>
+							</div>
+						</div>
+
+						<!-- Infinite-scroll sentinel: observed to trigger next-page loads -->
+						<div v-if="hasMorePhotos || loadingMore" ref="sentinelRef" class="load-more-sentinel">
+							<div v-if="loadingMore" class="text-center py-3">
+								<span class="spinner-border spinner-border-sm text-secondary" role="status"></span>
 							</div>
 						</div>
 
@@ -416,5 +522,9 @@ const goToNextPhoto = () => {
 		align-items: center;
 		justify-content: center;
 		z-index: 1;
+	}
+
+	.load-more-sentinel {
+		min-height: 48px;
 	}
 </style>

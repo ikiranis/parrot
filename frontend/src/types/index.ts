@@ -1,4 +1,15 @@
 
+/** Spring Data Page response envelope returned by paginated API endpoints. */
+export type PageResponse<T> = {
+	content: T[]
+	totalElements: number
+	totalPages: number
+	number: number
+	last: boolean
+	first: boolean
+	size: number
+}
+
 /** Pagination metadata returned by Spring Data paged responses. */
 export interface Pageable {
 	offset: number;

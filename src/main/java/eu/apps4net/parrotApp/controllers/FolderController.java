@@ -1,5 +1,8 @@
 package eu.apps4net.parrotApp.controllers;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.http.ResponseEntity;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
@@ -87,18 +90,24 @@ public class FolderController {
 	}
 
 	/**
-	 * Returns all image files directly inside the specified folder.
+	 * Returns a paginated list of image files directly inside the specified folder.
 	 *
-	 * @param id the primary key of the folder
-	 * @return list of {@link MediaFile} records of kind IMAGE within the folder
+	 * @param id   the primary key of the folder
+	 * @param page zero-based page index (default 0)
+	 * @param size number of records per page (default 50)
+	 * @return paginated {@link MediaFile} records of kind IMAGE within the folder
 	 * @throws NotFoundException if no folder with the given id exists
 	 */
 	@GetMapping("{id}/photos")
-	public ResponseEntity<List<MediaFile>> getFolderPhotos(@PathVariable Long id) {
+	public ResponseEntity<Page<MediaFile>> getFolderPhotos(
+			@PathVariable Long id,
+			@RequestParam(defaultValue = "0") int page,
+			@RequestParam(defaultValue = "50") int size) {
 		Folder folder = folderService.getFolder(id)
 				.orElseThrow(() -> new NotFoundException("Folder not found: " + id));
+		PageRequest pageable = PageRequest.of(page, size, Sort.by("filename").ascending());
 		return ResponseEntity.ok(mediaFileRepository.findByLibraryFolderAndPathAndKind(
-				folder.getLibraryFolder(), folder.getPath(), MediaKind.IMAGE));
+				folder.getLibraryFolder(), folder.getPath(), MediaKind.IMAGE, pageable));
 	}
 
 	/**

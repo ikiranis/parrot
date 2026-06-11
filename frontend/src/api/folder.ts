@@ -1,6 +1,6 @@
 import axios from "axios"
 import config from "@/functions/config.ts"
-import type { Folder, MediaFile } from "@/types"
+import type { Folder, MediaFile, PageResponse } from "@/types"
 
 /**
  * Retrieves all scanned folder records from the library.
@@ -57,18 +57,27 @@ export const getFolderChildren = async (id: number): Promise<Folder[]> => {
 }
 
 /**
- * Retrieves all image files directly inside the specified folder.
+ * Retrieves a paginated list of image files directly inside the specified folder,
+ * sorted by filename ascending.
  *
- * @param id the primary key of the folder
- * @returns array of {@link MediaFile} entries of kind IMAGE within the folder
+ * @param id   the primary key of the folder
+ * @param page zero-based page index (default 0)
+ * @param size number of records per page (default 50)
+ * @returns a {@link PageResponse} of {@link MediaFile} entries of kind IMAGE within the folder
  */
-export const getFolderPhotos = async (id: number): Promise<MediaFile[]> => {
+export const getFolderPhotosPage = async (
+	id: number,
+	page: number = 0,
+	size: number = 50
+): Promise<PageResponse<MediaFile>> => {
 	try {
-		const response = await axios.get(config.defaultServer() + `/api/folders/${id}/photos`)
+		const response = await axios.get(config.defaultServer() + `/api/folders/${id}/photos`, {
+			params: { page, size }
+		})
 		if (response.status === 200) {
 			return response.data
 		}
-		return []
+		return { content: [], totalElements: 0, totalPages: 0, number: 0, last: true, first: true, size }
 	} catch (error: unknown) {
 		throw error
 	}

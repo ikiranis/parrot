@@ -49,6 +49,17 @@ public interface MediaFileRepository extends JpaRepository<MediaFile, Long> {
 	List<MediaFile> findByLibraryFolderAndPathAndKind(LibraryFolder libraryFolder, String path, MediaKind kind);
 
 	/**
+	 * Returns a paginated list of media files of the given kind in the given library folder and relative directory path.
+	 *
+	 * @param libraryFolder the library folder the files belong to
+	 * @param path          the directory path relative to the library folder root
+	 * @param kind          the media kind to filter by
+	 * @param pageable      pagination and sorting parameters
+	 * @return a {@link Page} of matching {@link MediaFile} records
+	 */
+	Page<MediaFile> findByLibraryFolderAndPathAndKind(LibraryFolder libraryFolder, String path, MediaKind kind, Pageable pageable);
+
+	/**
 	 * Returns only the filenames of media files in the given library folder and relative directory path.
 	 * Prefer this over {@link #findByLibraryFolderAndPath} when only filenames are needed,
 	 * to avoid loading full entities into the persistence context.
