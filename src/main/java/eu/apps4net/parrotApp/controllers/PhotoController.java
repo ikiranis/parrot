@@ -36,6 +36,7 @@ import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.sql.Types;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -137,36 +138,70 @@ public class PhotoController {
 	}
 
 	/**
-	 * Returns up to {@code count} randomly selected photos, generating any missing thumbnails
-	 * before returning so that callers always receive a populated {@code thumbnailId}.
+	 * Returns up to {@code count} photos for the slideshow, generating any missing
+	 * thumbnails before returning so that callers always receive a populated
+	 * {@code thumbnailId}.
 	 *
-	 * Selection loads all photo IDs (a lightweight query) and then picks {@code count} of them
-	 * via a partial Fisher-Yates shuffle. This guarantees that every photo in the library is
-	 * equally likely to appear in any given batch, regardless of its position in the table.
-	 * It avoids both a full-table {@code ORDER BY RANDOM()} scan and the page-clustering problem
-	 * where a single random page can only ever return records from the same contiguous ID range.
+	 * Selection loads all photo IDs (a lightweight query) and then picks {@code count}
+	 * of them. When {@code doShuffle} is true the subset is chosen via a partial
+	 * Fisher-Yates shuffle, so every photo in the library is equally likely to appear
+	 * in any given batch regardless of its position in the table. When {@code doShuffle}
+	 * is false the photos are returned in sequence (ordered by id ascending) as stored
+	 * in the database, continuing from the photo immediately after {@code afterId} so
+	 * that consecutive calls page forward through the library instead of repeating the
+	 * same head records. Either way this avoids both a full-table {@code ORDER BY RANDOM()}
+	 * scan and the page-clustering problem of picking a single random page.
 	 *
-	 * @param count number of photos to return (1–50, default 10)
-	 * @return 200 with a {@link List} of {@link MediaFile} records, or 204 No Content if the library is empty
+	 * @param count     number of photos to return (1–50, default 10)
+	 * @param folderId  id of the folder to scope the selection to, or null for the root path
+	 *                  (folder scoping is not yet implemented and is currently ignored)
+	 * @param doShuffle true to return a random subset, false to return photos in sequence (default true)
+	 * @param afterId   in sequential mode, the id to resume after; null starts from the first photo
+	 *                  (ignored in shuffle mode)
+	 * @return 200 with a {@link List} of {@link MediaFile} records (possibly empty at the end of the
+	 *         sequence), or 204 No Content if the library is empty
 	 */
-	@GetMapping("random")
+	@GetMapping("batch")
 	@Transactional
-	public ResponseEntity<List<MediaFile>> getRandomPhotos(
-			@RequestParam(defaultValue = "10") int count) {
+	public ResponseEntity<List<MediaFile>> getPhotos(
+			@RequestParam(defaultValue = "10") int count,
+			@RequestParam(required = false) Long folderId,
+			@RequestParam(defaultValue = "true") boolean doShuffle,
+			@RequestParam(required = false) Long afterId) {
 		int size = Math.min(Math.max(count, 1), 50);
 		List<Long> allIds = mediaFileRepository.findIdsByKind(MediaKind.IMAGE);
 		if (allIds.isEmpty()) {
 			return ResponseEntity.noContent().build();
 		}
-		int pickCount = Math.min(size, allIds.size());
-		ThreadLocalRandom rng = ThreadLocalRandom.current();
-		for (int i = 0; i < pickCount; i++) {
-			int j = rng.nextInt(i, allIds.size());
-			Long tmp = allIds.get(i);
-			allIds.set(i, allIds.get(j));
-			allIds.set(j, tmp);
+
+		List<Long> pickIds;
+		if (doShuffle) {
+			int pickCount = Math.min(size, allIds.size());
+			ThreadLocalRandom rng = ThreadLocalRandom.current();
+			for (int i = 0; i < pickCount; i++) {
+				int j = rng.nextInt(i, allIds.size());
+				Long tmp = allIds.get(i);
+				allIds.set(i, allIds.get(j));
+				allIds.set(j, tmp);
+			}
+			pickIds = allIds.subList(0, pickCount);
+		} else {
+			// Sequential mode: ids are sorted ascending, so resume right after afterId.
+			int start = 0;
+			if (afterId != null) {
+				while (start < allIds.size() && allIds.get(start) <= afterId) {
+					start++;
+				}
+			}
+			int end = Math.min(start + size, allIds.size());
+			pickIds = allIds.subList(start, end);
 		}
-		List<MediaFile> photos = new ArrayList<>(mediaFileRepository.findAllById(allIds.subList(0, pickCount)));
+
+		List<MediaFile> photos = new ArrayList<>(mediaFileRepository.findAllById(pickIds));
+		if (!doShuffle) {
+			// findAllById does not guarantee ordering, so restore the database sequence.
+			photos.sort(Comparator.comparing(MediaFile::getId));
+		}
 		ensureThumbnails(photos);
 		return ResponseEntity.ok(photos);
 	}

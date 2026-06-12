@@ -127,17 +127,18 @@ public interface MediaFileRepository extends JpaRepository<MediaFile, Long> {
 	long countByKind(MediaKind kind);
 
 	/**
-	 * Returns only the IDs of all media files of the given kind.
+	 * Returns the IDs of all media files of the given kind, ordered by id ascending.
 	 *
-	 * Used for random selection: loading IDs alone is cheap regardless of library size,
-	 * allowing the caller to pick a random subset and then fetch only those records,
-	 * which avoids both a full-table {@code ORDER BY RANDOM()} scan and the page-clustering
-	 * problem of picking a single random page.
+	 * Used for photo selection: loading IDs alone is cheap regardless of library size,
+	 * allowing the caller to pick a subset and then fetch only those records, which
+	 * avoids both a full-table {@code ORDER BY RANDOM()} scan and the page-clustering
+	 * problem of picking a single random page. The deterministic ordering also lets the
+	 * caller return photos in sequence when random selection is not requested.
 	 *
 	 * @param kind the media kind to filter by
-	 * @return list of all matching record IDs
+	 * @return list of all matching record IDs, ordered by id ascending
 	 */
-	@Query("SELECT mf.id FROM MediaFile mf WHERE mf.kind = ?1")
+	@Query("SELECT mf.id FROM MediaFile mf WHERE mf.kind = ?1 ORDER BY mf.id ASC")
 	List<Long> findIdsByKind(MediaKind kind);
 
 	/**
