@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from "vue"
 import { language } from "@/functions/languageStore.ts"
-import { startScan, getScanStatus } from "@/api/scan.ts"
+import { startScan, getScanStatus, cancelScan } from "@/api/scan.ts"
 import type { ScanJobResponse } from "@/types"
 
 const POLL_INTERVAL_MS = 2_000
@@ -11,6 +11,7 @@ const RATE_SMOOTHING = 0.4
 
 const scanState = ref<ScanJobResponse | null>(null)
 const starting = ref(false)
+const cancelling = ref(false)
 const errorMessage = ref("")
 const showErrorLogs = ref(false)
 let pollTimer: ReturnType<typeof setInterval> | null = null
@@ -60,6 +61,7 @@ const applyState = (s: ScanJobResponse): void => {
 	} else {
 		prevSample.value = null
 		rates.value = null
+		cancelling.value = false
 	}
 	scanState.value = s
 }
@@ -122,6 +124,22 @@ const onStartScan = async () => {
 	}
 }
 
+/**
+ * Requests cancellation of the running scan. The backend stops at the next safe point and the
+ * next status poll reflects the CANCELLED state; the button is disabled while the request is in
+ * flight and stays reflecting "cancelling" until the scan leaves the RUNNING state.
+ */
+const onCancelScan = async () => {
+	cancelling.value = true
+	try {
+		applyState(await cancelScan())
+	} catch (error: unknown) {
+		const err = error as { response?: { data?: { message?: string } }; message?: string }
+		errorMessage.value = err.response?.data?.message ?? err.message ?? language.get("Failed to cancel scan")
+		cancelling.value = false
+	}
+}
+
 const toggleErrorLogs = () => {
 	showErrorLogs.value = !showErrorLogs.value
 }
@@ -133,6 +151,7 @@ const statusBadgeClass = computed(() => ({
 	"text-bg-warning": scanState.value?.status === "RUNNING",
 	"text-bg-success": scanState.value?.status === "COMPLETED",
 	"text-bg-danger": scanState.value?.status === "FAILED",
+	"text-bg-secondary": scanState.value?.status === "CANCELLED",
 }))
 
 /**
@@ -143,6 +162,7 @@ const progressBarClass = computed(() => ({
 	"progress-bar-animated": scanState.value?.status === "RUNNING",
 	"bg-success": scanState.value?.status === "COMPLETED",
 	"bg-danger": scanState.value?.status === "FAILED",
+	"bg-secondary": scanState.value?.status === "CANCELLED",
 }))
 
 /**
@@ -265,15 +285,26 @@ const formatDate = (iso: string): string => {
 	<div class="card mb-4">
 		<div class="card-header d-flex justify-content-between align-items-center">
 			<span class="fw-semibold">{{ language.get("Library Scan") }}</span>
-			<button
-				class="btn btn-sm btn-primary"
-				:disabled="starting || scanState?.status === 'RUNNING'"
-				@click="onStartScan"
-			>
-				<span v-if="starting || scanState?.status === 'RUNNING'"
-					class="spinner-border spinner-border-sm me-1" role="status"></span>
-				{{ scanState?.status === "RUNNING" ? language.get("Scanning...") : language.get("Scan Library") }}
-			</button>
+			<div class="d-flex gap-2">
+				<button
+					v-if="scanState?.status === 'RUNNING'"
+					class="btn btn-sm btn-outline-danger"
+					:disabled="cancelling"
+					@click="onCancelScan"
+				>
+					<span v-if="cancelling" class="spinner-border spinner-border-sm me-1" role="status"></span>
+					{{ cancelling ? language.get("Cancelling...") : language.get("Cancel") }}
+				</button>
+				<button
+					class="btn btn-sm btn-primary"
+					:disabled="starting || scanState?.status === 'RUNNING'"
+					@click="onStartScan"
+				>
+					<span v-if="starting || scanState?.status === 'RUNNING'"
+						class="spinner-border spinner-border-sm me-1" role="status"></span>
+					{{ scanState?.status === "RUNNING" ? language.get("Scanning...") : language.get("Scan Library") }}
+				</button>
+			</div>
 		</div>
 
 		<div v-if="errorMessage" class="alert alert-danger mb-0 rounded-0 border-0 border-bottom">

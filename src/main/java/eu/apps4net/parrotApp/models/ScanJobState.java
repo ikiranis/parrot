@@ -31,6 +31,9 @@ public class ScanJobState {
 	/** Wall-clock time when the scan finished; null while still running. */
 	private volatile Instant completedAt;
 
+	/** Set to true when a cancellation has been requested; polled by the scan service to stop early. */
+	private volatile boolean cancelRequested = false;
+
 	/** Number of new media files added to the database so far. */
 	private final AtomicInteger added = new AtomicInteger();
 
@@ -360,5 +363,31 @@ public class ScanJobState {
 		this.message = msg;
 		this.completedAt = Instant.now();
 		this.status = ScanStatus.FAILED;
+	}
+
+	/**
+	 * Requests cancellation of this scan. The scan service polls this flag at safe points and
+	 * stops claiming further work once it is set; the job is then marked as cancelled.
+	 */
+	public void requestCancel() {
+		this.cancelRequested = true;
+	}
+
+	/**
+	 * @return true if cancellation has been requested for this scan
+	 */
+	public boolean isCancelRequested() {
+		return cancelRequested;
+	}
+
+	/**
+	 * Marks the scan as cancelled with a summary message reflecting the work done before stopping.
+	 *
+	 * @param msg human-readable cancellation summary
+	 */
+	public void cancel(String msg) {
+		this.message = msg;
+		this.completedAt = Instant.now();
+		this.status = ScanStatus.CANCELLED;
 	}
 }

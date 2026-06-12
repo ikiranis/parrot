@@ -13,5 +13,8 @@ public enum ScanStatus {
 	COMPLETED,
 
 	/** The last scan terminated with an unrecoverable error. */
-	FAILED
+	FAILED,
+
+	/** The last scan was cancelled by the user before it finished. */
+	CANCELLED
 }

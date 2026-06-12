@@ -391,9 +391,29 @@
         <language code="el">Απέτυχε</language>
     </entry>
 
+    <entry id="CANCELLED">
+        <language code="en">Cancelled</language>
+        <language code="el">Ακυρώθηκε</language>
+    </entry>
+
     <entry id="Failed to start scan">
         <language code="en">Failed to start scan</language>
         <language code="el">Αποτυχία εκκίνησης σάρωσης</language>
+    </entry>
+
+    <entry id="Failed to cancel scan">
+        <language code="en">Failed to cancel scan</language>
+        <language code="el">Αποτυχία ακύρωσης σάρωσης</language>
+    </entry>
+
+    <entry id="Cancel">
+        <language code="en">Cancel</language>
+        <language code="el">Ακύρωση</language>
+    </entry>
+
+    <entry id="Cancelling...">
+        <language code="en">Cancelling...</language>
+        <language code="el">Ακύρωση...</language>
     </entry>
 
     <entry id="No scan has been run yet. Click &quot;Scan Library&quot; to start.">

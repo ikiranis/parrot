@@ -300,12 +300,17 @@ public class MediaScanService {
 			phaseExecutor.shutdown();
 			awaitAll(List.of(scanFuture, tagFuture), state);
 
-			state.complete("Scan complete. Added: " + state.getAdded() +
+			String summary = "Added: " + state.getAdded() +
 					", Skipped: " + state.getSkipped() +
 					", Tagged: " + state.getTagged() +
 					", Errors: " + state.getErrors() +
 					", Folders scanned: " + state.getFoldersScanned() +
-					", Folders skipped: " + state.getFoldersSkipped());
+					", Folders skipped: " + state.getFoldersSkipped();
+			if (state.isCancelRequested()) {
+				state.cancel("Scan cancelled. " + summary);
+			} else {
+				state.complete("Scan complete. " + summary);
+			}
 		} catch (Exception e) {
 			state.fail("Scan failed: " + e.getMessage());
 		}
@@ -328,6 +333,7 @@ public class MediaScanService {
 		List<LeafDirEntry> allLeafDirs = new ArrayList<>();
 		int totalMediaFiles = 0;
 		for (LibraryFolder lf : libraryFolders) {
+			if (state.isCancelRequested()) break;
 			Path root = Paths.get(lf.getPath());
 			if (!Files.exists(root) || !Files.isDirectory(root)) {
 				state.incrementErrors();
@@ -335,7 +341,7 @@ public class MediaScanService {
 				continue;
 			}
 			try {
-				CollectResult collected = collectLeafDirs(root, maxThreads);
+				CollectResult collected = collectLeafDirs(root, maxThreads, state);
 				for (LeafDirInfo info : collected.leafDirs()) {
 					allLeafDirs.add(new LeafDirEntry(
 							info.dir(), root, lf, info.fileCount(), info.totalBytes(), info.mediaCount()));
@@ -374,7 +380,7 @@ public class MediaScanService {
 		for (int t = 0; t < threads; t++) {
 			futures.add(executor.submit(() -> {
 				int idx;
-				while ((idx = cursor.getAndIncrement()) < total) {
+				while (!state.isCancelRequested() && (idx = cursor.getAndIncrement()) < total) {
 					processLeafDir(leafDirs.get(idx), state, ensuredAncestors);
 				}
 			}));
@@ -473,6 +479,10 @@ public class MediaScanService {
 			boolean finalTotalSet = false;
 
 			while (true) {
+				if (state.isCancelRequested()) {
+					break;
+				}
+
 				// Once the file scan has finished the row set is stable, so count the remaining
 				// untagged rows a single time to fix an accurate progress denominator.
 				if (fileScanDone.get() && !finalTotalSet) {
@@ -514,7 +524,8 @@ public class MediaScanService {
 					}
 					try {
 						long deadline = System.currentTimeMillis() + 3 * 60 * 1000L;
-						while (!fileScanDone.get() && System.currentTimeMillis() < deadline) {
+						while (!fileScanDone.get() && !state.isCancelRequested()
+								&& System.currentTimeMillis() < deadline) {
 							Thread.sleep(2_000L);
 						}
 					} catch (InterruptedException e) {
@@ -592,7 +603,7 @@ public class MediaScanService {
 
 		ScanContext ctx = new ScanContext(libraryFolder, jobState);
 
-		List<LeafDirInfo> leafDirs = collectLeafDirs(root, settingService.getMaxThreads()).leafDirs();
+		List<LeafDirInfo> leafDirs = collectLeafDirs(root, settingService.getMaxThreads(), jobState).leafDirs();
 
 		scanLeafDirectories(leafDirs, ctx);
 		leafDirs.clear();
@@ -622,15 +633,16 @@ public class MediaScanService {
 	 *
 	 * @param root       the root directory to walk
 	 * @param maxThreads the maximum number of threads for the parallel walk
+	 * @param state      job state polled for cancellation, or {@code null} for synchronous scans
 	 * @return the leaf directories and the on-disk media file count discovered under {@code root}
 	 */
-	private CollectResult collectLeafDirs(Path root, int maxThreads) {
+	private CollectResult collectLeafDirs(Path root, int maxThreads, ScanJobState state) {
 		List<LeafDirInfo> leafDirs = Collections.synchronizedList(new ArrayList<>());
 		AtomicInteger mediaCount = new AtomicInteger(0);
 
 		ForkJoinPool pool = new ForkJoinPool(Math.max(1, maxThreads));
 		try {
-			pool.invoke(new DirectoryWalkTask(root, leafDirs, mediaCount));
+			pool.invoke(new DirectoryWalkTask(root, leafDirs, mediaCount, state));
 		} finally {
 			pool.shutdown();
 		}
@@ -1118,19 +1130,28 @@ public class MediaScanService {
 		/** Shared counter of media files (by extension) discovered across the whole walk. */
 		private final AtomicInteger mediaCount;
 
+		/** Job state polled for cancellation; null for synchronous scans that cannot be cancelled. */
+		private final ScanJobState state;
+
 		/**
 		 * @param dir        the directory to walk
 		 * @param leafDirs   shared sink for discovered leaf directories
 		 * @param mediaCount shared media-file counter
+		 * @param state      job state polled for cancellation, or {@code null} when not cancellable
 		 */
-		DirectoryWalkTask(Path dir, List<LeafDirInfo> leafDirs, AtomicInteger mediaCount) {
+		DirectoryWalkTask(Path dir, List<LeafDirInfo> leafDirs, AtomicInteger mediaCount, ScanJobState state) {
 			this.dir = dir;
 			this.leafDirs = leafDirs;
 			this.mediaCount = mediaCount;
+			this.state = state;
 		}
 
 		@Override
 		protected void compute() {
+			if (state != null && state.isCancelRequested()) {
+				return;
+			}
+
 			int fileCount = 0;
 			long totalBytes = 0L;
 			int dirMediaCount = 0;
@@ -1149,7 +1170,7 @@ public class MediaScanService {
 						if (name.startsWith("#") || name.startsWith(".")) {
 							continue;
 						}
-						subtasks.add(new DirectoryWalkTask(entry, leafDirs, mediaCount));
+						subtasks.add(new DirectoryWalkTask(entry, leafDirs, mediaCount, state));
 					} else if (attrs.isRegularFile()) {
 						fileCount++;
 						totalBytes += attrs.size();

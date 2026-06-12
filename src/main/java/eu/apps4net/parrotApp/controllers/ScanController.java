@@ -39,6 +39,18 @@ public class ScanController {
 	}
 
 	/**
+	 * Requests cancellation of the currently running background scan.
+	 * The scan stops at the next safe point; work already completed is retained.
+	 * Returns 409 Conflict if no scan is currently running.
+	 *
+	 * @return the {@link ScanJobResponse} reflecting the cancelling job
+	 */
+	@PostMapping("cancel")
+	public ResponseEntity<ScanJobResponse> cancel() {
+		return ResponseEntity.ok(scanJobService.cancelScan());
+	}
+
+	/**
 	 * Returns the current status of the most recent background scan job.
 	 * If no scan has been started since the application launched, returns an idle placeholder.
 	 *

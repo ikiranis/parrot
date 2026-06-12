@@ -20,6 +20,22 @@ export const startScan = async (): Promise<ScanJobResponse> => {
 }
 
 /**
+ * Requests cancellation of the currently running background scan.
+ * The scan stops at the next safe point; work already completed is retained.
+ *
+ * @returns the {@link ScanJobResponse} reflecting the cancelling job
+ * @throws the Axios error when the server returns 409 (no scan running) or any other error
+ */
+export const cancelScan = async (): Promise<ScanJobResponse> => {
+	try {
+		const response = await axios.post(config.defaultServer() + "/api/scan/cancel")
+		return response.data
+	} catch (error: unknown) {
+		throw error
+	}
+}
+
+/**
  * Returns the current status of the most recent background scan job.
  * Safe to call at any time; returns an idle placeholder when no scan has run.
  *

@@ -61,6 +61,23 @@ public class ScanJobService {
 	}
 
 	/**
+	 * Requests cancellation of the currently running scan.
+	 * The scan stops claiming new work at the next safe point and is then marked as cancelled;
+	 * work already completed is retained. Returns the current status either way.
+	 *
+	 * @return the {@link ScanJobResponse} for the current job
+	 * @throws ResponseStatusException with 409 Conflict if no scan is currently running
+	 */
+	public ScanJobResponse cancelScan() {
+		ScanJobState state = currentJob.get();
+		if (state == null || state.getStatus() != ScanStatus.RUNNING) {
+			throw new ResponseStatusException(HttpStatus.CONFLICT, "No scan is currently running");
+		}
+		state.requestCancel();
+		return ScanJobResponse.from(state);
+	}
+
+	/**
 	 * Returns the current scan job status.
 	 * If no scan has been started since the application launched, returns an idle placeholder.
 	 *

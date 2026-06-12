@@ -130,7 +130,7 @@ export type Setting = {
 }
 
 /** Lifecycle states for a background library scan job. */
-export type ScanStatus = 'IDLE' | 'RUNNING' | 'COMPLETED' | 'FAILED'
+export type ScanStatus = 'IDLE' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED'
 
 /** Active scanning phase within a running background scan job. */
 export type ScanPhase = 'COLLECTING' | 'SCANNING' | 'TAGGING'
