@@ -19,3 +19,13 @@ export const checkAppAlive = async (): Promise<boolean> => {
         return false
     }
 }
+
+/**
+ * Deletes all library data from the database and removes the thumbnails directory from disk.
+ * This operation is irreversible.
+ *
+ * @returns void on success
+ */
+export const deepClean = async (): Promise<void> => {
+    await axios.delete(config.defaultServer() + '/api/general/deep-clean')
+}

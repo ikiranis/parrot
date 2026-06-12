@@ -126,6 +126,21 @@
         <language code="el">Καθαρισμός Βιβλιοθήκης</language>
     </entry>
 
+    <entry id="Deep Clean">
+        <language code="en">Deep Clean</language>
+        <language code="el">Πλήρης Εκκαθάριση</language>
+    </entry>
+
+    <entry id="This will permanently delete ALL library data and thumbnails. This action cannot be undone. Are you sure?">
+        <language code="en">This will permanently delete ALL library data and thumbnails. This action cannot be undone. Are you sure?</language>
+        <language code="el">Αυτό θα διαγράψει οριστικά ΟΛΑ τα δεδομένα βιβλιοθήκης και τις μικρογραφίες. Η ενέργεια δεν μπορεί να αναιρεθεί. Είστε σίγουρος;</language>
+    </entry>
+
+    <entry id="Are you absolutely sure? All scanned media, folders, and thumbnails will be erased.">
+        <language code="en">Are you absolutely sure? All scanned media, folders, and thumbnails will be erased.</language>
+        <language code="el">Είστε απολύτως σίγουρος; Όλα τα σαρωμένα μέσα, οι φάκελοι και οι μικρογραφίες θα διαγραφούν.</language>
+    </entry>
+
     <entry id="Are you sure you want to delete all photos from the library?">
         <language code="en">Are you sure you want to delete all photos from the library?</language>
         <language code="el">Είστε σίγουρος ότι θέλετε να διαγράψετε όλες τις φωτογραφίες από τη βιβλιοθήκη;</language>

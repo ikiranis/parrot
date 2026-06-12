@@ -4,6 +4,7 @@ import { language } from "@/functions/languageStore.ts"
 import { errorStore } from "@/components/error/errorStore.ts"
 import { getLibraryFolders, deleteLibraryFolder } from "@/api/libraryFolder.ts"
 import { exportTagData, importTagData } from "@/api/photo.ts"
+import { deepClean } from "@/api/general.ts"
 import type { LibraryFolder, TagExportItem } from "@/types"
 import router from "@/router"
 import Error from "@/components/error/Error.vue"
@@ -21,6 +22,7 @@ const importLoading = ref(false)
 const importProgress = ref<number | null>(null)
 /** Running totals shown below the progress bar. */
 const importTotals = ref({ processed: 0, total: 0, updated: 0, notFound: 0 })
+const deepCleanLoading = ref(false)
 
 onMounted(() => {
 	loadFolders()
@@ -60,6 +62,22 @@ const onDelete = async (id: number) => {
 			const err = error as { response?: { data?: { message?: string; status?: number } }; message?: string }
 			errorStore.set(true, err.response?.data?.message ?? err.message ?? "", err.response?.data?.status ?? 500)
 		})
+}
+
+const onDeepClean = async () => {
+	if (!confirm(language.get("This will permanently delete ALL library data and thumbnails. This action cannot be undone. Are you sure?"))) return
+	if (!confirm(language.get("Are you absolutely sure? All scanned media, folders, and thumbnails will be erased."))) return
+
+	deepCleanLoading.value = true
+	try {
+		await deepClean()
+		folders.value = []
+	} catch (error: unknown) {
+		const err = error as { response?: { data?: { message?: string; status?: number } }; message?: string }
+		errorStore.set(true, err.response?.data?.message ?? err.message ?? "", err.response?.data?.status ?? 500)
+	} finally {
+		deepCleanLoading.value = false
+	}
 }
 
 const onExport = async () => {
@@ -146,6 +164,10 @@ const onFileSelected = async (event: Event) => {
 				/>
 				<button class="btn btn-primary btn-sm" :disabled="loading" @click="onAdd">
 					{{ language.get("Add Folder") }}
+				</button>
+				<button class="btn btn-danger btn-sm" :disabled="deepCleanLoading" @click="onDeepClean">
+					<span v-if="deepCleanLoading" class="spinner-border spinner-border-sm me-1" role="status"></span>
+					{{ language.get("Deep Clean") }}
 				</button>
 			</div>
 		</div>
