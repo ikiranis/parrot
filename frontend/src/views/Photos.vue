@@ -173,6 +173,7 @@ const navigateInto = async (folder: Folder) => {
 	await loadFolderContent(folder)
 
 	loading.value = false
+	if (hasMorePhotos.value) setupObserver()
 }
 
 /**
@@ -194,6 +195,7 @@ const navigateTo = async (stackIndex: number) => {
 	await loadFolderContent(target)
 
 	loading.value = false
+	if (hasMorePhotos.value) setupObserver()
 }
 
 /** Loads the next page of photos for the current folder and appends them to the grid. */
