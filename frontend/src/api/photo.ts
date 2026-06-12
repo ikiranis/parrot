@@ -42,27 +42,6 @@ export const scanLibraryFolders = async (): Promise<ScanResult | undefined> => {
 }
 
 /**
- * Retrieves a paginated list of photos from the database.
- *
- * @param page page index (0-based)
- * @param size number of results per page
- * @returns a Spring {@code Page} wrapper containing the photo entries
- */
-export const getPhotos = async (page: number = 0, size: number = 20) => {
-    try {
-        const response = await axios.get(config.defaultServer() + '/api/photos/all', {
-            params: { page, size }
-        })
-
-        if (response.status === 200) {
-            return response.data
-        }
-    } catch (error: unknown) {
-        throw error
-    }
-}
-
-/**
  * Deletes all photo records from the database. The physical files are not affected.
  *
  * @returns void on success
@@ -91,15 +70,22 @@ export const getPhotoById = async (id: number): Promise<PhotoDetail> => {
 }
 
 /**
- * Returns up to `count` randomly selected photos in a single request.
+ * Returns up to `count` photos in a single request, optionally scoped to a folder
+ * and optionally shuffled.
  * Returns an empty array when the library is empty (HTTP 204).
  *
- * @param count number of photos to fetch (default 10)
+ * @param count     number of photos to fetch (default 10)
+ * @param folderId  id of the folder to fetch photos from, or null for the root path
+ * @param doShuffle when true the photos are returned in random order; otherwise in sequence
  * @returns array of {@link MediaFile} records
  */
-export const getRandomPhotos = async (count: number = 10): Promise<import("@/types").MediaFile[]> => {
+export const getPhotos = async (
+    count: number = 10,
+    folderId: number | null = null,
+    doShuffle: boolean = true
+): Promise<import("@/types").MediaFile[]> => {
     const response = await axios.get(config.defaultServer() + '/api/photos/random', {
-        params: { count },
+        params: { count, folderId, doShuffle },
         validateStatus: (s) => s === 200 || s === 204
     })
     return response.status === 200 ? response.data : []

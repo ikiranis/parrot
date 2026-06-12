@@ -2,7 +2,7 @@
 import { ref, Ref, computed, watch, nextTick, onMounted, onUnmounted } from "vue"
 import { language } from "@/functions/languageStore.ts"
 import { errorStore } from "@/components/error/errorStore.ts"
-import { getRandomPhotos, getPhotoImageUrl, getThumbnailUrl, setPhotoRating, incrementPhotoView, deletePhoto } from "@/api/photo.ts"
+import { getPhotos, getPhotoImageUrl, getThumbnailUrl, setPhotoRating, incrementPhotoView, deletePhoto } from "@/api/photo.ts"
 import { getSettingByName } from "@/api/setting.ts"
 import type { MediaFile, PhotoDetail } from "@/types"
 import Error from "@/components/error/Error.vue"
@@ -151,7 +151,7 @@ const preloadNext = async () => {
 	if (slots <= 0) return
 
 	try {
-		const photos = await getRandomPhotos(slots)
+		const photos = await getPhotos(slots, null, true)
 		for (const photo of photos) {
 			prefetchQueue.value.push(photo)
 			preloadImage(photo)
@@ -184,7 +184,7 @@ const navigateForward = async () => {
 		photo = prefetchQueue.value.shift()!
 	} else {
 		try {
-			const photos = await getRandomPhotos(PREFETCH_MAX)
+			const photos = await getPhotos(PREFETCH_MAX, null, true)
 			photo = photos[0] ?? null
 			for (const p of photos.slice(1)) {
 				prefetchQueue.value.push(p)
