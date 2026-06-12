@@ -546,4 +546,34 @@
         <language code="el">Δεν βρέθηκαν αποτελέσματα.</language>
     </entry>
 
+    <entry id="Done">
+        <language code="en">Done</language>
+        <language code="el">Τέλος</language>
+    </entry>
+
+    <entry id="Select">
+        <language code="en">Select</language>
+        <language code="el">Επιλογή</language>
+    </entry>
+
+    <entry id="Select All">
+        <language code="en">Select All</language>
+        <language code="el">Επιλογή όλων</language>
+    </entry>
+
+    <entry id="Deselect All">
+        <language code="en">Deselect All</language>
+        <language code="el">Αποεπιλογή όλων</language>
+    </entry>
+
+    <entry id="Delete Selected">
+        <language code="en">Delete Selected</language>
+        <language code="el">Διαγραφή επιλεγμένων</language>
+    </entry>
+
+    <entry id="Are you sure you want to delete the selected photos?">
+        <language code="en">Are you sure you want to delete the selected photos?</language>
+        <language code="el">Είστε σίγουροι ότι θέλετε να διαγράψετε τις επιλεγμένες φωτογραφίες;</language>
+    </entry>
+
 </root>

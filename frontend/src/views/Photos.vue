@@ -3,7 +3,7 @@ import { ref, Ref, computed, watch, nextTick, onMounted, onUnmounted } from "vue
 import { useRouter } from "vue-router"
 import { language } from "@/functions/languageStore.ts"
 import { errorStore } from "@/components/error/errorStore.ts"
-import { createPhotoThumbnail } from "@/api/photo.ts"
+import { createPhotoThumbnail, deletePhoto } from "@/api/photo.ts"
 import { getFoldersByLevel, getFolderChildren, getFolderPhotosPage, getFolderChain, getThumbnailUrl, createFolderThumbnail } from "@/api/folder.ts"
 import { searchFolders, searchPhotosPage } from "@/api/search.ts"
 import { MediaFile, Folder } from "@/types"
@@ -46,6 +46,15 @@ const searchActive: Ref<boolean> = ref(false)
 
 /** Pending debounce timer for search input; cleared on each keystroke and on unmount. */
 let searchDebounce: ReturnType<typeof setTimeout> | null = null
+
+/** True when the grid is in edit mode: photo cards show selection checkboxes. */
+const editMode: Ref<boolean> = ref(false)
+
+/** Ids of photos currently ticked for bulk actions; reset whenever the view changes. */
+const selectedPhotoIds: Ref<Set<number>> = ref(new Set())
+
+/** True while a bulk delete of the selected photos is in flight. */
+const deletingSelected: Ref<boolean> = ref(false)
 
 /** Stack of folders the user has navigated into; empty means root (level 1). */
 const folderStack: Ref<Folder[]> = ref([])
@@ -203,6 +212,7 @@ watch(hasMorePhotos, val => {
 /** Resets all photo-pagination state and disconnects the observer. */
 const resetPhotoState = () => {
 	displayPhotos.value = []
+	selectedPhotoIds.value = new Set()
 	loadingThumbnails.value = new Set()
 	hasMorePhotos.value = false
 	currentFolderId.value = null
@@ -501,6 +511,74 @@ const onPhotoDeleted = (id: number) => {
 	displayPhotos.value = displayPhotos.value.filter(p => p.id !== id)
 	selectedPhotoId.value = null
 }
+
+/** Number of photos currently ticked for bulk actions. */
+const selectedCount = computed(() => selectedPhotoIds.value.size)
+
+/** True when every displayed photo is ticked (and at least one photo is shown). */
+const allSelected = computed(() =>
+	displayPhotos.value.length > 0 && selectedPhotoIds.value.size === displayPhotos.value.length
+)
+
+/** Toggles edit mode; leaving edit mode clears any pending selection. */
+const toggleEditMode = () => {
+	editMode.value = !editMode.value
+	if (!editMode.value) selectedPhotoIds.value = new Set()
+}
+
+/**
+ * Toggles whether the given photo is ticked for bulk actions.
+ *
+ * @param id the id of the photo to toggle
+ */
+const togglePhotoSelection = (id: number) => {
+	const next = new Set(selectedPhotoIds.value)
+	if (next.has(id)) next.delete(id)
+	else next.add(id)
+	selectedPhotoIds.value = next
+}
+
+/** Ticks every displayed photo, or clears the selection when all are already ticked. */
+const toggleSelectAll = () => {
+	selectedPhotoIds.value = allSelected.value
+		? new Set()
+		: new Set(displayPhotos.value.map(p => p.id))
+}
+
+/**
+ * Handles a click on a photo card: toggles its selection in edit mode, otherwise opens the viewer.
+ *
+ * @param photo the clicked photo
+ */
+const onPhotoClick = (photo: MediaFile) => {
+	if (editMode.value) togglePhotoSelection(photo.id)
+	else selectedPhotoId.value = photo.id
+}
+
+/**
+ * Deletes every ticked photo after confirmation, removing the deleted records from the grid.
+ * Failures on individual photos are surfaced via the error store and leave that photo in place.
+ */
+const deleteSelected = async () => {
+	if (selectedPhotoIds.value.size === 0 || deletingSelected.value) return
+	if (!confirm(language.get("Are you sure you want to delete the selected photos?"))) return
+
+	deletingSelected.value = true
+	const deleted = new Set<number>()
+	for (const id of selectedPhotoIds.value) {
+		try {
+			await deletePhoto(id)
+			deleted.add(id)
+		} catch (e) {
+			handleError(e)
+		}
+	}
+
+	displayPhotos.value = displayPhotos.value.filter(p => !deleted.has(p.id))
+	totalPhotosCount.value = Math.max(0, totalPhotosCount.value - deleted.size)
+	selectedPhotoIds.value = new Set()
+	deletingSelected.value = false
+}
 </script>
 
 <template>
@@ -587,18 +665,57 @@ const onPhotoDeleted = (id: number) => {
 					<template v-if="hasMorePhotos">/ {{ totalPhotosCount }}</template>
 					{{ language.get("photos") }}
 				</div>
-				<button
-					v-if="!searchActive && (folderStack.length > 0 || displayPhotos.length > 0)"
-					type="button"
-					class="btn btn-sm btn-outline-primary slideshow-btn"
-					@click="launchSlideshow"
-					:title="language.get('Slideshow')"
-				>
-					<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
-						<path d="m11.596 8.697-6.363 3.692c-.54.313-1.233-.066-1.233-.697V4.308c0-.63.692-1.01 1.233-.696l6.363 3.692a.802.802 0 0 1 0 1.393z"/>
-					</svg>
-					<span class="ms-1">{{ language.get("Slideshow") }}</span>
-				</button>
+				<div class="photos-actions">
+					<!-- Bulk-selection toolbar, shown only in edit mode -->
+					<template v-if="editMode">
+						<button
+							type="button"
+							class="btn btn-sm btn-outline-secondary"
+							:disabled="displayPhotos.length === 0"
+							@click="toggleSelectAll"
+						>
+							{{ allSelected ? language.get("Deselect All") : language.get("Select All") }}
+						</button>
+						<button
+							type="button"
+							class="btn btn-sm btn-danger"
+							:disabled="selectedCount === 0 || deletingSelected"
+							@click="deleteSelected"
+							:title="language.get('Delete')"
+						>
+							<span v-if="deletingSelected" class="spinner-border spinner-border-sm" role="status"></span>
+							<template v-else>{{ language.get("Delete Selected") }} ({{ selectedCount }})</template>
+						</button>
+					</template>
+
+					<button
+						v-if="!editMode && !searchActive && (folderStack.length > 0 || displayPhotos.length > 0)"
+						type="button"
+						class="btn btn-sm btn-outline-primary slideshow-btn"
+						@click="launchSlideshow"
+						:title="language.get('Slideshow')"
+					>
+						<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+							<path d="m11.596 8.697-6.363 3.692c-.54.313-1.233-.066-1.233-.697V4.308c0-.63.692-1.01 1.233-.696l6.363 3.692a.802.802 0 0 1 0 1.393z"/>
+						</svg>
+						<span class="ms-1">{{ language.get("Slideshow") }}</span>
+					</button>
+
+					<!-- Edit-mode toggle: always available at the top right -->
+					<button
+						type="button"
+						class="btn btn-sm slideshow-btn"
+						:class="editMode ? 'btn-primary' : 'btn-outline-secondary'"
+						@click="toggleEditMode"
+						:title="language.get('Edit')"
+						:aria-pressed="editMode"
+					>
+						<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+							<path d="M12.146.146a.5.5 0 0 1 .708 0l3 3a.5.5 0 0 1 0 .708l-10 10a.5.5 0 0 1-.168.11l-5 2a.5.5 0 0 1-.65-.65l2-5a.5.5 0 0 1 .11-.168zM11.207 2.5 13.5 4.793 14.793 3.5 12.5 1.207zm1.586 3L10.5 3.207 4 9.707V10h.5a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 .5.5v.5h.293zm-9.761 5.175-.106.106-1.528 3.821 3.821-1.528.106-.106A.5.5 0 0 1 5 12.5V12h-.5a.5.5 0 0 1-.5-.5V11h-.5a.5.5 0 0 1-.468-.325"/>
+						</svg>
+						<span class="ms-1">{{ editMode ? language.get("Done") : language.get("Edit") }}</span>
+					</button>
+				</div>
 			</div>
 		</div>
 
@@ -686,8 +803,23 @@ const onPhotoDeleted = (id: number) => {
 
 						<!-- Photo cards -->
 						<div v-for="photo in displayPhotos" :key="'p-' + photo.id" class="col">
-							<div class="media-card photo-card" @click="selectedPhotoId = photo.id" :title="photo.filename">
+							<div
+								class="media-card photo-card"
+								:class="{ 'media-card--selected': editMode && selectedPhotoIds.has(photo.id) }"
+								@click="onPhotoClick(photo)"
+								:title="photo.filename"
+							>
 								<div class="media-thumb">
+									<!-- Selection checkbox, shown only in edit mode -->
+									<label v-if="editMode" class="select-checkbox" @click.stop>
+										<input
+											type="checkbox"
+											class="form-check-input"
+											:checked="selectedPhotoIds.has(photo.id)"
+											@change="togglePhotoSelection(photo.id)"
+											:aria-label="language.get('Select')"
+										/>
+									</label>
 									<div v-if="loadingThumbnails.has(photo.id)" class="thumb-generating">
 										<span class="spinner-border spinner-border-sm text-secondary" role="status"></span>
 									</div>
@@ -846,11 +978,43 @@ const onPhotoDeleted = (id: number) => {
 		font-weight: 500;
 	}
 
+	.photos-actions {
+		flex-shrink: 0;
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+	}
+
 	.slideshow-btn {
 		flex-shrink: 0;
 		display: inline-flex;
 		align-items: center;
 		white-space: nowrap;
+	}
+
+	.select-checkbox {
+		position: absolute;
+		top: 6px;
+		left: 6px;
+		margin: 0;
+		z-index: 3;
+		display: flex;
+		padding: 2px;
+		background-color: rgba(255, 255, 255, 0.85);
+		border-radius: 4px;
+		box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.15);
+	}
+
+	.select-checkbox .form-check-input {
+		margin: 0;
+		cursor: pointer;
+		width: 1.1rem;
+		height: 1.1rem;
+	}
+
+	.media-card--selected {
+		border-color: #0d6efd;
+		box-shadow: 0 0 0 2px rgba(13, 110, 253, 0.5);
 	}
 
 	.photos-scroll-area {
