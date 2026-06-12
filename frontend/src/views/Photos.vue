@@ -320,6 +320,11 @@ const goToNextPhoto = () => {
 	const idx = selectedPhotoIndex.value
 	if (idx < displayPhotos.value.length - 1) selectedPhotoId.value = displayPhotos.value[idx + 1].id
 }
+
+const onPhotoDeleted = (id: number) => {
+	displayPhotos.value = displayPhotos.value.filter(p => p.id !== id)
+	selectedPhotoId.value = null
+}
 </script>
 
 <template>
@@ -380,6 +385,7 @@ const goToNextPhoto = () => {
 			@close="selectedPhotoId = null"
 			@prev="goToPrevPhoto"
 			@next="goToNextPhoto"
+			@deleted="onPhotoDeleted"
 		/>
 
 		<!-- Scrollable grid -->
