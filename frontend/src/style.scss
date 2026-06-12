@@ -1,6 +1,11 @@
 // Import all of Bootstrap's CSS
 @use "bootstrap/scss/bootstrap";
 
+html, body {
+    height: 100%;
+    overflow: hidden;
+}
+
 body {
     font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
     line-height: 1.5;
@@ -14,8 +19,11 @@ body {
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     -webkit-text-size-adjust: 100%;
+}
 
-    overflow-x: hidden;
+#app {
+    height: 100%;
+    overflow: hidden;
 }
 
 h1 {

@@ -59,7 +59,7 @@ const collapse = () => {
         <sidebar class="sidebar d-flex flex-column col-lg-2 col-12" :collapsed="collapsed"/>
 
         <div class="content col-lg-10 col-12 px-5">
-            <div class="d-none d-lg-block">
+            <div class="d-none d-lg-block flex-shrink-0">
                 <span @click="collapse" class="collapseButton btn" :title="collapsed ? language.get('Expand') : language.get('Collapse')">
                     <span v-if="collapsed">
                         <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" fill="currentColor" class="bi bi-arrow-right-circle" viewBox="0 0 16 16">
@@ -74,7 +74,9 @@ const collapse = () => {
                 </span>
             </div>
 
-            <router-view/>
+            <div class="content__view">
+                <router-view/>
+            </div>
         </div>
     </div>
 
@@ -87,13 +89,26 @@ const collapse = () => {
 .collapseButton {
     position: relative;
     left: -3em;
-    //opacity: 0.3; /* Set the default opacity, where 1.0 is fully opaque and 0.0 is fully transparent */
-    transition: color 0.3s; /* Add a smooth transition effect for opacity changes */
+    transition: color 0.3s;
     color: lightgrey;
 
     &:hover {
-        //opacity: 1.0; /* Set opacity to fully opaque on hover */
         color: black;
     }
+}
+
+.content {
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.content__view {
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
 }
 </style>

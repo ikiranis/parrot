@@ -46,6 +46,9 @@ const loadingMore: Ref<boolean> = ref(false)
 /** Sentinel element at the bottom of the grid; observed to trigger page loads. */
 const sentinelRef: Ref<HTMLElement | null> = ref(null)
 
+/** Scrollable grid container; used as root for the IntersectionObserver. */
+const scrollAreaRef: Ref<HTMLElement | null> = ref(null)
+
 let intersectionObserver: IntersectionObserver | null = null
 
 onMounted(() => {
@@ -64,7 +67,7 @@ const setupObserver = () => {
 		if (!sentinelRef.value) return
 		intersectionObserver = new IntersectionObserver(
 			entries => { if (entries[0].isIntersecting) loadMorePhotos() },
-			{ rootMargin: "200px" }
+			{ root: scrollAreaRef.value, rootMargin: "200px" }
 		)
 		intersectionObserver.observe(sentinelRef.value)
 	})
@@ -215,9 +218,10 @@ const loadMorePhotos = async () => {
 		loadingMore.value = false
 		// If sentinel is still visible after DOM update, keep loading pages.
 		nextTick(() => {
-			if (!hasMorePhotos.value || !sentinelRef.value) return
+			if (!hasMorePhotos.value || !sentinelRef.value || !scrollAreaRef.value) return
+			const containerRect = scrollAreaRef.value.getBoundingClientRect()
 			const rect = sentinelRef.value.getBoundingClientRect()
-			if (rect.top < window.innerHeight + 200) loadMorePhotos()
+			if (rect.top < containerRect.bottom + 200) loadMorePhotos()
 		})
 	}
 }
@@ -291,34 +295,41 @@ const goToNextPhoto = () => {
 </script>
 
 <template>
-	<div class="container-fluid mt-4">
+	<div class="photos-page">
 
-		<!-- Breadcrumb -->
-		<nav aria-label="breadcrumb" class="mb-3">
-			<ol class="breadcrumb mb-0">
-				<li class="breadcrumb-item">
-					<a href="#" class="text-decoration-none breadcrumb-home" @click.prevent="navigateTo(-1)" :title="language.get('Home')">
-						<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
-							<path d="M8.354 1.146a.5.5 0 0 0-.708 0l-6 6A.5.5 0 0 0 1.5 8v6a.5.5 0 0 0 .5.5h3.5a.5.5 0 0 0 .5-.5v-3h4v3a.5.5 0 0 0 .5.5H14a.5.5 0 0 0 .5-.5V8a.5.5 0 0 0-.146-.354L13 6.293V2.5a.5.5 0 0 0-.5-.5h-1a.5.5 0 0 0-.5.5v1.293L8.354 1.146z"/>
-						</svg>
-					</a>
-				</li>
-				<li
-					v-for="(folder, index) in folderStack"
-					:key="folder.id"
-					class="breadcrumb-item"
-					:class="{ active: index === folderStack.length - 1 }"
-				>
-					<a
-						v-if="index < folderStack.length - 1"
-						href="#"
-						class="text-decoration-none"
-						@click.prevent="navigateTo(index)"
-					>{{ folderName(folder) }}</a>
-					<span v-else>{{ folderName(folder) }}</span>
-				</li>
-			</ol>
-		</nav>
+		<!-- Always-visible header: breadcrumb + photo count -->
+		<div class="photos-header">
+			<nav aria-label="breadcrumb">
+				<ol class="breadcrumb mb-0">
+					<li class="breadcrumb-item">
+						<a href="#" class="text-decoration-none breadcrumb-home" @click.prevent="navigateTo(-1)" :title="language.get('Home')">
+							<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+								<path d="M8.354 1.146a.5.5 0 0 0-.708 0l-6 6A.5.5 0 0 0 1.5 8v6a.5.5 0 0 0 .5.5h3.5a.5.5 0 0 0 .5-.5v-3h4v3a.5.5 0 0 0 .5.5H14a.5.5 0 0 0 .5-.5V8a.5.5 0 0 0-.146-.354L13 6.293V2.5a.5.5 0 0 0-.5-.5h-1a.5.5 0 0 0-.5.5v1.293L8.354 1.146z"/>
+							</svg>
+						</a>
+					</li>
+					<li
+						v-for="(folder, index) in folderStack"
+						:key="folder.id"
+						class="breadcrumb-item"
+						:class="{ active: index === folderStack.length - 1 }"
+					>
+						<a
+							v-if="index < folderStack.length - 1"
+							href="#"
+							class="text-decoration-none"
+							@click.prevent="navigateTo(index)"
+						>{{ folderName(folder) }}</a>
+						<span v-else>{{ folderName(folder) }}</span>
+					</li>
+				</ol>
+			</nav>
+			<div v-if="totalPhotosCount > 0" class="text-muted small mt-1">
+				{{ displayPhotos.length }}
+				<template v-if="hasMorePhotos">/ {{ totalPhotosCount }}</template>
+				{{ language.get("photos") }}
+			</div>
+		</div>
 
 		<!-- Photo viewer -->
 		<PhotoDetail
@@ -331,8 +342,8 @@ const goToNextPhoto = () => {
 			@next="goToNextPhoto"
 		/>
 
-		<!-- Grid view -->
-		<template v-else>
+		<!-- Scrollable grid -->
+		<div v-else ref="scrollAreaRef" class="photos-scroll-area">
 
 			<!-- Loading -->
 			<div v-if="loading">
@@ -345,11 +356,6 @@ const goToNextPhoto = () => {
 					{{ language.get("No folders found. Scan a folder to import photos.") }}
 				</div>
 				<div v-else>
-					<div v-if="totalPhotosCount > 0" class="text-muted small mb-2">
-						{{ displayPhotos.length }}
-						<template v-if="hasMorePhotos">/ {{ totalPhotosCount }}</template>
-						{{ language.get("photos") }}
-					</div>
 					<div class="row row-cols-2 row-cols-sm-3 row-cols-md-4 row-cols-lg-5 row-cols-xl-6 g-3">
 
 						<!-- Go-up card -->
@@ -431,7 +437,7 @@ const goToNextPhoto = () => {
 				</div>
 			</div>
 
-		</template>
+		</div>
 
 		<Error />
 
@@ -505,6 +511,29 @@ const goToNextPhoto = () => {
 		justify-content: center;
 		width: 100%;
 		height: 100%;
+	}
+
+	.photos-page {
+		display: flex;
+		flex-direction: column;
+		flex: 1;
+		min-height: 0;
+		overflow: hidden;
+	}
+
+	.photos-header {
+		flex-shrink: 0;
+		padding: 0.75rem 0 0.5rem;
+		border-bottom: 1px solid #dee2e6;
+		margin-bottom: 0.5rem;
+	}
+
+	.photos-scroll-area {
+		flex: 1;
+		min-height: 0;
+		overflow-x: hidden;
+		overflow-y: auto;
+		padding-top: 0.5rem;
 	}
 
 	.breadcrumb-home {
