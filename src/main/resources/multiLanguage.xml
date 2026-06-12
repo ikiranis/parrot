@@ -521,4 +521,29 @@
         <language code="el">Είστε σίγουροι ότι θέλετε να διαγράψετε αυτή τη φωτογραφία;</language>
     </entry>
 
+    <entry id="Search">
+        <language code="en">Search</language>
+        <language code="el">Αναζήτηση</language>
+    </entry>
+
+    <entry id="Search by path or filename">
+        <language code="en">Search by path or filename</language>
+        <language code="el">Αναζήτηση ανά διαδρομή ή όνομα αρχείου</language>
+    </entry>
+
+    <entry id="All ratings">
+        <language code="en">All ratings</language>
+        <language code="el">Όλες οι βαθμολογίες</language>
+    </entry>
+
+    <entry id="Search results">
+        <language code="en">Search results</language>
+        <language code="el">Αποτελέσματα αναζήτησης</language>
+    </entry>
+
+    <entry id="No results found.">
+        <language code="en">No results found.</language>
+        <language code="el">Δεν βρέθηκαν αποτελέσματα.</language>
+    </entry>
+
 </root>

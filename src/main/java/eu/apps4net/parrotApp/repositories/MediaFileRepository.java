@@ -119,6 +119,50 @@ public interface MediaFileRepository extends JpaRepository<MediaFile, Long> {
 	Page<MediaFile> findByKind(MediaKind kind, Pageable pageable);
 
 	/**
+	 * Returns a paginated list of media files of the given kind whose relative directory path or
+	 * filename matches the given case-insensitive LIKE pattern.
+	 *
+	 * Both the path and the filename columns are lowered and compared against the pattern, so the
+	 * caller must supply an already-lowercased pattern (e.g. {@code "%beach%"}). Used by the photo
+	 * search to match a free-text query against either the location or the name of a file.
+	 *
+	 * @param kind     the media kind to filter by
+	 * @param pattern  a lowercase SQL LIKE pattern matched against both path and filename
+	 * @param pageable pagination and sorting parameters
+	 * @return a {@link Page} of matching {@link MediaFile} records
+	 */
+	@Query("SELECT mf FROM MediaFile mf WHERE mf.kind = :kind "
+			+ "AND (LOWER(mf.path) LIKE :pattern OR LOWER(mf.filename) LIKE :pattern)")
+	Page<MediaFile> searchByKindAndText(
+			@org.springframework.data.repository.query.Param("kind") MediaKind kind,
+			@org.springframework.data.repository.query.Param("pattern") String pattern,
+			Pageable pageable);
+
+	/**
+	 * Returns a paginated list of media files of the given kind whose relative directory path or
+	 * filename matches the given case-insensitive LIKE pattern and which carry a {@link eu.apps4net.parrotApp.models.PhotoTag}
+	 * with the exact given rating.
+	 *
+	 * This is the rating-constrained variant of {@link #searchByKindAndText}: the inner join on
+	 * {@code PhotoTag} excludes any file that has no tag or a different rating, so only files rated
+	 * exactly {@code rating} are returned.
+	 *
+	 * @param kind     the media kind to filter by
+	 * @param pattern  a lowercase SQL LIKE pattern matched against both path and filename
+	 * @param rating   the exact rating the file's photo tag must have (1–5)
+	 * @param pageable pagination and sorting parameters
+	 * @return a {@link Page} of matching {@link MediaFile} records
+	 */
+	@Query("SELECT mf FROM MediaFile mf JOIN PhotoTag pt ON pt.mediaFile = mf "
+			+ "WHERE mf.kind = :kind AND pt.rating = :rating "
+			+ "AND (LOWER(mf.path) LIKE :pattern OR LOWER(mf.filename) LIKE :pattern)")
+	Page<MediaFile> searchByKindAndTextAndRating(
+			@org.springframework.data.repository.query.Param("kind") MediaKind kind,
+			@org.springframework.data.repository.query.Param("pattern") String pattern,
+			@org.springframework.data.repository.query.Param("rating") Integer rating,
+			Pageable pageable);
+
+	/**
 	 * Counts the media files of the given kind.
 	 *
 	 * @param kind the media kind to count

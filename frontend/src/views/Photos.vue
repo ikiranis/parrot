@@ -5,6 +5,7 @@ import { language } from "@/functions/languageStore.ts"
 import { errorStore } from "@/components/error/errorStore.ts"
 import { createPhotoThumbnail } from "@/api/photo.ts"
 import { getFoldersByLevel, getFolderChildren, getFolderPhotosPage, getFolderChain, getThumbnailUrl, createFolderThumbnail } from "@/api/folder.ts"
+import { searchFolders, searchPhotosPage } from "@/api/search.ts"
 import { MediaFile, Folder } from "@/types"
 import Error from "@/components/error/Error.vue"
 import Loading from "@/components/utilities/Loading.vue"
@@ -33,6 +34,18 @@ const router = useRouter()
 
 const loading = ref(false)
 const selectedPhotoId: Ref<number | null> = ref(null)
+
+/** Free-text query matched against folder paths and photo paths/filenames; empty means no search. */
+const searchQuery: Ref<string> = ref("")
+
+/** Selected rating filter as a string ("" = all ratings, "1".."5" = exact rating). */
+const searchRating: Ref<string> = ref("")
+
+/** True while search results are shown in place of the folder-browsing view. */
+const searchActive: Ref<boolean> = ref(false)
+
+/** Pending debounce timer for search input; cleared on each keystroke and on unmount. */
+let searchDebounce: ReturnType<typeof setTimeout> | null = null
 
 /** Stack of folders the user has navigated into; empty means root (level 1). */
 const folderStack: Ref<Folder[]> = ref([])
@@ -82,7 +95,88 @@ watch(() => props.folderId, (folderId) => {
 
 onUnmounted(() => {
 	intersectionObserver?.disconnect()
+	if (searchDebounce) clearTimeout(searchDebounce)
 })
+
+// Debounce search input: run a search when a query or rating is set, otherwise leave search mode.
+watch([searchQuery, searchRating], () => {
+	if (searchDebounce) clearTimeout(searchDebounce)
+	searchDebounce = setTimeout(() => {
+		if (searchQuery.value.trim() === "" && searchRating.value === "") {
+			if (searchActive.value) exitSearch()
+		} else {
+			runSearch()
+		}
+	}, 300)
+})
+
+/** Parses the selected rating into a number, or null when "all ratings" is selected. */
+const selectedRating = (): number | null =>
+	searchRating.value === "" ? null : Number(searchRating.value)
+
+/**
+ * Runs a search for the current query and rating, replacing the grid with the matching
+ * folders and the first page of matching photos. Folders carry no rating, so they are only
+ * included when no rating filter is applied. Subsequent photo pages load via infinite scroll.
+ */
+const runSearch = async () => {
+	selectedPhotoId.value = null
+	searchActive.value = true
+	loading.value = true
+	displayFolders.value = []
+	loadingFolderThumbnails.value = new Set()
+	resetPhotoState()
+
+	const query = searchQuery.value.trim()
+	const rating = selectedRating()
+
+	const foldersPromise: Promise<Folder[]> = rating === null
+		? searchFolders(query).catch((e: unknown) => { handleError(e); return [] as Folder[] })
+		: Promise.resolve([])
+
+	const [folders, photosPage] = await Promise.all([
+		foldersPromise,
+		searchPhotosPage(query, rating, 0, PAGE_SIZE).catch((e: unknown) => { handleError(e); return null })
+	])
+
+	displayFolders.value = folders
+	generateMissingFolderThumbnails(folders)
+
+	if (photosPage) {
+		displayPhotos.value = photosPage.content
+		totalPhotosCount.value = photosPage.totalElements
+		hasMorePhotos.value = !photosPage.last
+		currentPage.value = 0
+		generateMissingThumbnails(photosPage.content)
+	}
+
+	loading.value = false
+	if (hasMorePhotos.value) setupObserver()
+}
+
+/** Leaves search mode and restores the folder view the user was browsing before searching. */
+const exitSearch = async () => {
+	searchActive.value = false
+	const current = folderStack.value[folderStack.value.length - 1]
+	if (!current) {
+		await loadRoot()
+		return
+	}
+	loading.value = true
+	displayFolders.value = []
+	loadingFolderThumbnails.value = new Set()
+	resetPhotoState()
+	await loadFolderContent(current)
+	loading.value = false
+	if (hasMorePhotos.value) setupObserver()
+}
+
+/** Clears the search controls and immediately returns to the folder-browsing view. */
+const clearSearch = () => {
+	searchQuery.value = ""
+	searchRating.value = ""
+	if (searchActive.value) exitSearch()
+}
 
 /** Sets up IntersectionObserver on the sentinel after a tick so the DOM is ready. */
 const setupObserver = () => {
@@ -223,6 +317,25 @@ const loadFolderById = async (folderId: number) => {
 }
 
 /**
+ * Handles a click on a folder card. In search mode the breadcrumb is unrelated to the result,
+ * so the folder is opened by id (rebuilding the chain) after leaving search mode; otherwise the
+ * folder is opened by drilling in from the current position.
+ *
+ * @param folder the folder whose card was clicked
+ */
+const onFolderClick = async (folder: Folder) => {
+	if (!searchActive.value) {
+		await navigateInto(folder)
+		return
+	}
+	// Leave search mode without triggering exitSearch (loadFolderById rebuilds the view itself).
+	searchActive.value = false
+	searchQuery.value = ""
+	searchRating.value = ""
+	await loadFolderById(folder.id)
+}
+
+/**
  * Navigates into a folder: pushes it onto the breadcrumb stack, then loads its
  * children and direct photos in parallel.
  */
@@ -261,13 +374,19 @@ const navigateTo = async (stackIndex: number) => {
 	if (hasMorePhotos.value) setupObserver()
 }
 
-/** Loads the next page of photos for the current folder and appends them to the grid. */
+/**
+ * Loads the next page of photos and appends them to the grid. The source is the active search
+ * when in search mode, otherwise the current folder.
+ */
 const loadMorePhotos = async () => {
-	if (!hasMorePhotos.value || loadingMore.value || currentFolderId.value === null) return
+	if (!hasMorePhotos.value || loadingMore.value) return
+	if (!searchActive.value && currentFolderId.value === null) return
 	loadingMore.value = true
 	const nextPage = currentPage.value + 1
 	try {
-		const response = await getFolderPhotosPage(currentFolderId.value, nextPage, PAGE_SIZE)
+		const response = searchActive.value
+			? await searchPhotosPage(searchQuery.value.trim(), selectedRating(), nextPage, PAGE_SIZE)
+			: await getFolderPhotosPage(currentFolderId.value!, nextPage, PAGE_SIZE)
 		displayPhotos.value = [...displayPhotos.value, ...response.content]
 		currentPage.value = nextPage
 		hasMorePhotos.value = !response.last
@@ -387,50 +506,100 @@ const onPhotoDeleted = (id: number) => {
 <template>
 	<div class="photos-page">
 
-		<!-- Always-visible header: breadcrumb + photo count -->
+		<!-- Always-visible header: centered search bar, then breadcrumb/results row -->
 		<div class="photos-header">
-			<nav aria-label="breadcrumb">
-				<ol class="breadcrumb mb-0">
-					<li class="breadcrumb-item">
-						<a href="#" class="text-decoration-none breadcrumb-home" @click.prevent="navigateTo(-1)" :title="language.get('Home')">
-							<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
-								<path d="M8.354 1.146a.5.5 0 0 0-.708 0l-6 6A.5.5 0 0 0 1.5 8v6a.5.5 0 0 0 .5.5h3.5a.5.5 0 0 0 .5-.5v-3h4v3a.5.5 0 0 0 .5.5H14a.5.5 0 0 0 .5-.5V8a.5.5 0 0 0-.146-.354L13 6.293V2.5a.5.5 0 0 0-.5-.5h-1a.5.5 0 0 0-.5.5v1.293L8.354 1.146z"/>
-							</svg>
-						</a>
-					</li>
-					<li
-						v-for="(folder, index) in folderStack"
-						:key="folder.id"
-						class="breadcrumb-item"
-						:class="{ active: index === folderStack.length - 1 }"
+
+			<!-- Centered search: free-text query over paths/filenames + rating filter -->
+			<div class="photos-search">
+				<div class="input-group input-group-sm photos-search__group">
+					<span class="input-group-text">
+						<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16">
+							<path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001q.044.06.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1 1 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0"/>
+						</svg>
+					</span>
+					<input
+						type="text"
+						class="form-control"
+						v-model="searchQuery"
+						:placeholder="language.get('Search by path or filename')"
+						:aria-label="language.get('Search')"
+					/>
+					<select
+						class="form-select photos-search__rating"
+						v-model="searchRating"
+						:title="language.get('Rating')"
+						:aria-label="language.get('Rating')"
 					>
-						<a
-							v-if="index < folderStack.length - 1"
-							href="#"
-							class="text-decoration-none"
-							@click.prevent="navigateTo(index)"
-						>{{ folderName(folder) }}</a>
-						<span v-else>{{ folderName(folder) }}</span>
-					</li>
-				</ol>
-			</nav>
-			<div v-if="totalPhotosCount > 0" class="text-muted small mt-1">
-				{{ displayPhotos.length }}
-				<template v-if="hasMorePhotos">/ {{ totalPhotosCount }}</template>
-				{{ language.get("photos") }}
+						<option value="">{{ language.get("All ratings") }}</option>
+						<option value="1">1 ★</option>
+						<option value="2">2 ★</option>
+						<option value="3">3 ★</option>
+						<option value="4">4 ★</option>
+						<option value="5">5 ★</option>
+					</select>
+					<button
+						v-if="searchActive"
+						type="button"
+						class="btn btn-outline-secondary"
+						@click="clearSearch"
+						:title="language.get('Clear')"
+						:aria-label="language.get('Clear')"
+					>
+						<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16">
+							<path d="M2.146 2.854a.5.5 0 1 1 .708-.708L8 7.293l5.146-5.147a.5.5 0 0 1 .708.708L8.707 8l5.147 5.146a.5.5 0 0 1-.708.708L8 8.707l-5.146 5.147a.5.5 0 0 1-.708-.708L7.293 8z"/>
+						</svg>
+					</button>
+				</div>
 			</div>
-			<button
-				v-if="folderStack.length > 0 || displayPhotos.length > 0"
-				type="button"
-				class="btn btn-sm btn-outline-primary slideshow-btn"
-				@click="launchSlideshow"
-				:title="language.get('Slideshow')"
-			>
-				<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
-					<path d="m11.596 8.697-6.363 3.692c-.54.313-1.233-.066-1.233-.697V4.308c0-.63.692-1.01 1.233-.696l6.363 3.692a.802.802 0 0 1 0 1.393z"/>
-				</svg>
-				<span class="ms-1">{{ language.get("Slideshow") }}</span>
-			</button>
+
+			<!-- Breadcrumb (browse) or results label (search) + photo count + slideshow -->
+			<div class="photos-subheader">
+				<nav v-if="!searchActive" aria-label="breadcrumb">
+					<ol class="breadcrumb mb-0">
+						<li class="breadcrumb-item">
+							<a href="#" class="text-decoration-none breadcrumb-home" @click.prevent="navigateTo(-1)" :title="language.get('Home')">
+								<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+									<path d="M8.354 1.146a.5.5 0 0 0-.708 0l-6 6A.5.5 0 0 0 1.5 8v6a.5.5 0 0 0 .5.5h3.5a.5.5 0 0 0 .5-.5v-3h4v3a.5.5 0 0 0 .5.5H14a.5.5 0 0 0 .5-.5V8a.5.5 0 0 0-.146-.354L13 6.293V2.5a.5.5 0 0 0-.5-.5h-1a.5.5 0 0 0-.5.5v1.293L8.354 1.146z"/>
+								</svg>
+							</a>
+						</li>
+						<li
+							v-for="(folder, index) in folderStack"
+							:key="folder.id"
+							class="breadcrumb-item"
+							:class="{ active: index === folderStack.length - 1 }"
+						>
+							<a
+								v-if="index < folderStack.length - 1"
+								href="#"
+								class="text-decoration-none"
+								@click.prevent="navigateTo(index)"
+							>{{ folderName(folder) }}</a>
+							<span v-else>{{ folderName(folder) }}</span>
+						</li>
+					</ol>
+				</nav>
+				<div v-else class="text-muted small search-results-label">
+					{{ language.get("Search results") }}
+				</div>
+				<div v-if="totalPhotosCount > 0" class="text-muted small">
+					{{ displayPhotos.length }}
+					<template v-if="hasMorePhotos">/ {{ totalPhotosCount }}</template>
+					{{ language.get("photos") }}
+				</div>
+				<button
+					v-if="!searchActive && (folderStack.length > 0 || displayPhotos.length > 0)"
+					type="button"
+					class="btn btn-sm btn-outline-primary slideshow-btn"
+					@click="launchSlideshow"
+					:title="language.get('Slideshow')"
+				>
+					<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+						<path d="m11.596 8.697-6.363 3.692c-.54.313-1.233-.066-1.233-.697V4.308c0-.63.692-1.01 1.233-.696l6.363 3.692a.802.802 0 0 1 0 1.393z"/>
+					</svg>
+					<span class="ms-1">{{ language.get("Slideshow") }}</span>
+				</button>
+			</div>
 		</div>
 
 		<!-- Photo viewer -->
@@ -455,14 +624,17 @@ const onPhotoDeleted = (id: number) => {
 
 			<!-- Unified grid: folders first, then photos -->
 			<div v-else>
-				<div v-if="displayFolders.length === 0 && displayPhotos.length === 0 && folderStack.length === 0" class="text-muted">
+				<div v-if="searchActive && displayFolders.length === 0 && displayPhotos.length === 0" class="text-muted">
+					{{ language.get("No results found.") }}
+				</div>
+				<div v-else-if="!searchActive && displayFolders.length === 0 && displayPhotos.length === 0 && folderStack.length === 0" class="text-muted">
 					{{ language.get("No folders found. Scan a folder to import photos.") }}
 				</div>
 				<div v-else>
 					<div class="row row-cols-2 row-cols-sm-3 row-cols-md-4 row-cols-lg-5 row-cols-xl-6 g-3">
 
 						<!-- Go-up card -->
-						<div v-if="folderStack.length > 0" class="col">
+						<div v-if="!searchActive && folderStack.length > 0" class="col">
 							<div class="media-card up-card" @click="navigateTo(folderStack.length - 2)">
 								<div class="media-thumb">
 									<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" fill="#6c757d" viewBox="0 0 16 16">
@@ -475,7 +647,7 @@ const onPhotoDeleted = (id: number) => {
 
 						<!-- Folder cards -->
 						<div v-for="folder in displayFolders" :key="'f-' + folder.id" class="col">
-							<div class="media-card folder-card" @click="navigateInto(folder)" :title="folder.path">
+							<div class="media-card folder-card" @click="onFolderClick(folder)" :title="folder.path">
 								<div class="media-thumb">
 									<!-- Play overlay: starts a slideshow scoped to this folder -->
 									<button
@@ -639,12 +811,39 @@ const onPhotoDeleted = (id: number) => {
 	.photos-header {
 		flex-shrink: 0;
 		display: flex;
-		align-items: flex-start;
-		justify-content: space-between;
-		gap: 1rem;
+		flex-direction: column;
+		gap: 0.5rem;
 		padding: 0.75rem 0 0.5rem;
 		border-bottom: 1px solid #dee2e6;
 		margin-bottom: 0.5rem;
+	}
+
+	.photos-search {
+		display: flex;
+		justify-content: center;
+	}
+
+	.photos-search__group {
+		width: 100%;
+		max-width: 520px;
+	}
+
+	.photos-search__rating {
+		flex: 0 0 auto;
+		width: auto;
+		min-width: 7.5rem;
+	}
+
+	.photos-subheader {
+		display: flex;
+		align-items: flex-start;
+		justify-content: space-between;
+		gap: 1rem;
+		min-height: 1.5rem;
+	}
+
+	.search-results-label {
+		font-weight: 500;
 	}
 
 	.slideshow-btn {

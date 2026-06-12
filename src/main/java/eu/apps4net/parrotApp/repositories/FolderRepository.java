@@ -80,4 +80,20 @@ public interface FolderRepository extends JpaRepository<Folder, Long> {
 	 */
 	List<Folder> findByLibraryFolderAndLevelAndPathStartingWith(
 			LibraryFolder libraryFolder, int childLevel, String pathPrefix);
+
+	/**
+	 * Returns folders whose relative path matches the given case-insensitive LIKE pattern,
+	 * excluding library root containers (folders with an empty path), ordered by path ascending.
+	 *
+	 * The path column is lowered and compared against the pattern, so the caller must supply an
+	 * already-lowercased pattern (e.g. {@code "%beach%"}). Used by the search to surface folders
+	 * whose location matches a free-text query. The {@code pageable} bounds the result size so a
+	 * broad query cannot return the entire folder table.
+	 *
+	 * @param pattern  a lowercase SQL LIKE pattern matched against the folder path
+	 * @param pageable controls the maximum number of folders returned; page index should be 0
+	 * @return list of matching {@link Folder} records, ordered by path ascending
+	 */
+	@Query("SELECT f FROM Folder f WHERE f.path <> '' AND LOWER(f.path) LIKE :pattern ORDER BY f.path ASC")
+	List<Folder> searchByPath(@Param("pattern") String pattern, Pageable pageable);
 }
