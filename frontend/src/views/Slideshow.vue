@@ -72,25 +72,45 @@ watch(currentPhoto, async (photo) => {
 	}
 })
 
-const stopAutoPlay = () => {
+/**
+ * iPadOS 13+ identifies as MacIntel with touch support; older iOS uses iPad/iPhone/iPod UA.
+ * We detect both to avoid triggering the native Fullscreen API, which causes Safari to show
+ * a virtual-keyboard warning on iPads. CSS pseudo-fullscreen bypasses that browser restriction.
+ */
+const isIOSDevice = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+	(navigator.userAgent.includes('Mac') && 'ontouchend' in document)
+
+const stopAutoPlay = async () => {
 	isAutoPlay.value = false
 	if (slideshowTimer !== null) {
 		clearInterval(slideshowTimer)
 		slideshowTimer = null
 	}
+	if (isIOSDevice) {
+		try {
+			if (document.fullscreenElement) await document.exitFullscreen()
+		} catch { /* best-effort */ }
+		isFullscreen.value = true
+	}
 }
 
-const startAutoPlay = () => {
+const startAutoPlay = async () => {
 	if (slideshowTimer !== null) clearInterval(slideshowTimer)
 	isAutoPlay.value = true
 	slideshowTimer = setInterval(() => navigateForward(), slideshowTime.value)
+	if (isIOSDevice && slideshowEl.value) {
+		isFullscreen.value = false
+		try {
+			if (!document.fullscreenElement) await slideshowEl.value.requestFullscreen()
+		} catch { /* best-effort */ }
+	}
 }
 
-const toggleAutoPlay = () => {
+const toggleAutoPlay = async () => {
 	if (isAutoPlay.value) {
-		stopAutoPlay()
+		await stopAutoPlay()
 	} else {
-		startAutoPlay()
+		await startAutoPlay()
 	}
 }
 
@@ -368,6 +388,11 @@ const handleKeyup = async (event: KeyboardEvent) => {
 const toggleFullscreen = async () => {
 	if (!slideshowEl.value) return
 
+	if (isIOSDevice) {
+		isFullscreen.value = !isFullscreen.value
+		return
+	}
+
 	if (!document.fullscreenElement) {
 		await slideshowEl.value.requestFullscreen()
 	} else {
@@ -377,7 +402,7 @@ const toggleFullscreen = async () => {
 </script>
 
 <template>
-	<div class="slideshow" ref="slideshowEl">
+	<div class="slideshow" ref="slideshowEl" :class="{ 'slideshow--ios-fullscreen': isIOSDevice && isFullscreen }">
 		<template v-if="currentPhoto">
 			<img
 				:src="getPhotoImageUrl(currentPhoto.id)"
@@ -567,7 +592,8 @@ const toggleFullscreen = async () => {
 	border-radius: 4px;
 
 	&:fullscreen,
-	&:-webkit-full-screen {
+	&:-webkit-full-screen,
+	&--ios-fullscreen {
 		min-height: 100vh;
 		border-radius: 0;
 
@@ -578,6 +604,12 @@ const toggleFullscreen = async () => {
 			max-height: none;
 			object-fit: contain;
 		}
+	}
+
+	&--ios-fullscreen {
+		position: fixed;
+		inset: 0;
+		z-index: 9999;
 	}
 
 	&__image {
