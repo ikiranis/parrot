@@ -142,6 +142,25 @@ public interface MediaFileRepository extends JpaRepository<MediaFile, Long> {
 	List<Long> findIdsByKind(MediaKind kind);
 
 	/**
+	 * Returns the IDs of all media files of the given kind located in the given library folder
+	 * at or beneath the given relative directory path, ordered by id ascending.
+	 *
+	 * Scoping is recursive: a file matches when its path equals {@code path} exactly (files
+	 * directly in the folder) or begins with {@code path + "/"} (files in any nested subfolder).
+	 * This mirrors the id-only selection of {@link #findIdsByKind} but constrained to a single
+	 * folder subtree, so the photo-batch endpoint can drive a folder-scoped slideshow without a
+	 * full-library scan.
+	 *
+	 * @param kind          the media kind to filter by
+	 * @param libraryFolder the library folder the files belong to
+	 * @param path          the directory path, relative to the library folder root, whose subtree to include
+	 * @return list of matching record IDs, ordered by id ascending
+	 */
+	@Query("SELECT mf.id FROM MediaFile mf WHERE mf.kind = ?1 AND mf.libraryFolder = ?2 " +
+			"AND (mf.path = ?3 OR mf.path LIKE CONCAT(?3, '/%')) ORDER BY mf.id ASC")
+	List<Long> findIdsByKindAndFolderSubtree(MediaKind kind, LibraryFolder libraryFolder, String path);
+
+	/**
 	 * Deletes all media files of the given kind.
 	 *
 	 * @param kind the media kind to delete

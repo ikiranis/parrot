@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, Ref, computed, watch, nextTick, onMounted, onUnmounted } from "vue"
+import { useRouter } from "vue-router"
 import { language } from "@/functions/languageStore.ts"
 import { errorStore } from "@/components/error/errorStore.ts"
 import { createPhotoThumbnail } from "@/api/photo.ts"
@@ -12,6 +13,8 @@ import PhotoDetail from "@/components/PhotoDetail.vue"
 const PAGE_SIZE = 50
 /** Larger initial fetch for root-level photos, which are rarely paginated. */
 const ROOT_PAGE_SIZE = 200
+
+const router = useRouter()
 
 const loading = ref(false)
 const selectedPhotoId: Ref<number | null> = ref(null)
@@ -270,6 +273,18 @@ const generateMissingThumbnails = (photos: MediaFile[]) => {
 	}
 }
 
+/**
+ * Opens the slideshow scoped to the folder currently being viewed. At the library
+ * root no folder id is passed, so the slideshow draws from the entire library.
+ */
+const launchSlideshow = () => {
+	const folder = folderStack.value[folderStack.value.length - 1]
+	router.push({
+		name: "Slideshow",
+		query: folder ? { folderId: folder.id } : {}
+	})
+}
+
 const handleError = (error: unknown) => {
 	const err = error as { response?: { data?: { message?: string; status?: number } }; message?: string }
 	errorStore.set(true, err.response?.data?.message ?? err.message ?? "", err.response?.data?.status ?? 500)
@@ -329,6 +344,18 @@ const goToNextPhoto = () => {
 				<template v-if="hasMorePhotos">/ {{ totalPhotosCount }}</template>
 				{{ language.get("photos") }}
 			</div>
+			<button
+				v-if="folderStack.length > 0 || displayPhotos.length > 0"
+				type="button"
+				class="btn btn-sm btn-outline-primary slideshow-btn"
+				@click="launchSlideshow"
+				:title="language.get('Slideshow')"
+			>
+				<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+					<path d="m11.596 8.697-6.363 3.692c-.54.313-1.233-.066-1.233-.697V4.308c0-.63.692-1.01 1.233-.696l6.363 3.692a.802.802 0 0 1 0 1.393z"/>
+				</svg>
+				<span class="ms-1">{{ language.get("Slideshow") }}</span>
+			</button>
 		</div>
 
 		<!-- Photo viewer -->
@@ -523,9 +550,20 @@ const goToNextPhoto = () => {
 
 	.photos-header {
 		flex-shrink: 0;
+		display: flex;
+		align-items: flex-start;
+		justify-content: space-between;
+		gap: 1rem;
 		padding: 0.75rem 0 0.5rem;
 		border-bottom: 1px solid #dee2e6;
 		margin-bottom: 0.5rem;
+	}
+
+	.slideshow-btn {
+		flex-shrink: 0;
+		display: inline-flex;
+		align-items: center;
+		white-space: nowrap;
 	}
 
 	.photos-scroll-area {

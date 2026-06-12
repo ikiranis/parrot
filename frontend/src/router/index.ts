@@ -58,7 +58,10 @@ const routes : RouteRecordRaw[] = [
     {
         path: '/slideshow',
         name: 'Slideshow',
-        component: Slideshow
+        component: Slideshow,
+        props: route => ({
+            folderId: route.query.folderId != null ? Number(route.query.folderId) : null
+        })
     },
 ]
 

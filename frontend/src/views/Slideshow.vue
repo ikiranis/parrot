@@ -7,6 +7,20 @@ import { getSettingByName } from "@/api/setting.ts"
 import type { MediaFile, PhotoDetail } from "@/types"
 import Error from "@/components/error/Error.vue"
 
+/**
+ * Props for the slideshow view.
+ *
+ * @property folderId id of the folder to scope the slideshow to; when null the
+ *           slideshow draws from the entire library
+ */
+interface SlideshowProps {
+	folderId?: number | null
+}
+
+const props = withDefaults(defineProps<SlideshowProps>(), {
+	folderId: null
+})
+
 const PREFETCH_MAX = 10
 const MAX_HISTORY = 20
 
@@ -187,7 +201,7 @@ const preloadNext = async () => {
 
 	const epoch = fetchEpoch
 	try {
-		const photos = await getPhotos(slots, null, doShuffle.value, forwardCursor())
+		const photos = await getPhotos(slots, props.folderId, doShuffle.value, forwardCursor())
 		// A mode toggle while this fetch was in flight invalidates these photos.
 		if (epoch !== fetchEpoch) return
 		for (const photo of photos) {
@@ -223,7 +237,7 @@ const navigateForward = async () => {
 	} else {
 		const epoch = fetchEpoch
 		try {
-			const photos = await getPhotos(PREFETCH_MAX, null, doShuffle.value, forwardCursor())
+			const photos = await getPhotos(PREFETCH_MAX, props.folderId, doShuffle.value, forwardCursor())
 			// A mode toggle while this fetch was in flight invalidates these photos.
 			if (epoch !== fetchEpoch) {
 				navigating.value = false

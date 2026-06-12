@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.*;
 
 import eu.apps4net.parrotApp.exceptions.NotFoundException;
 import eu.apps4net.parrotApp.exceptions.ProcessingErrorException;
+import eu.apps4net.parrotApp.models.Folder;
 import eu.apps4net.parrotApp.models.MediaFile;
 import eu.apps4net.parrotApp.models.MediaKind;
 import eu.apps4net.parrotApp.models.PhotoDetailDTO;
@@ -23,6 +24,7 @@ import eu.apps4net.parrotApp.models.TagExportItemDTO;
 import eu.apps4net.parrotApp.models.Thumbnail;
 import eu.apps4net.parrotApp.repositories.MediaFileRepository;
 import eu.apps4net.parrotApp.repositories.PhotoTagRepository;
+import eu.apps4net.parrotApp.services.FolderService;
 import eu.apps4net.parrotApp.services.MediaScanService;
 import eu.apps4net.parrotApp.services.PhotoService;
 import eu.apps4net.parrotApp.services.ThumbnailService;
@@ -66,6 +68,9 @@ public class PhotoController {
 	/** Service encapsulating photo business logic such as deletion. */
 	private final PhotoService photoService;
 
+	/** Service for resolving folder records when scoping a photo batch to a folder. */
+	private final FolderService folderService;
+
 	/** JDBC template used for bulk import writes, bypassing JPA dirty-checking overhead. */
 	private final JdbcTemplate jdbcTemplate;
 
@@ -77,6 +82,7 @@ public class PhotoController {
 	 * @param photoTagRepository  the photo tag repository
 	 * @param thumbnailService    the thumbnail service
 	 * @param photoService        the photo service
+	 * @param folderService       the folder service
 	 * @param jdbcTemplate        the JDBC template
 	 */
 	public PhotoController(MediaScanService mediaScanService,
@@ -84,12 +90,14 @@ public class PhotoController {
 						   PhotoTagRepository photoTagRepository,
 						   ThumbnailService thumbnailService,
 						   PhotoService photoService,
+						   FolderService folderService,
 						   JdbcTemplate jdbcTemplate) {
 		this.mediaScanService = mediaScanService;
 		this.mediaFileRepository = mediaFileRepository;
 		this.photoTagRepository = photoTagRepository;
 		this.thumbnailService = thumbnailService;
 		this.photoService = photoService;
+		this.folderService = folderService;
 		this.jdbcTemplate = jdbcTemplate;
 	}
 
@@ -152,9 +160,13 @@ public class PhotoController {
 	 * same head records. Either way this avoids both a full-table {@code ORDER BY RANDOM()}
 	 * scan and the page-clustering problem of picking a single random page.
 	 *
+	 * When {@code folderId} is supplied the selection is scoped to that folder's subtree:
+	 * only photos located directly in the folder or in any of its nested subfolders are
+	 * considered. An unknown {@code folderId} falls back to the whole library.
+	 *
 	 * @param count     number of photos to return (1–50, default 10)
-	 * @param folderId  id of the folder to scope the selection to, or null for the root path
-	 *                  (folder scoping is not yet implemented and is currently ignored)
+	 * @param folderId  id of the folder whose subtree to scope the selection to, or null for the
+	 *                  whole library
 	 * @param doShuffle true to return a random subset, false to return photos in sequence (default true)
 	 * @param afterId   in sequential mode, the id to resume after; null starts from the first photo
 	 *                  (ignored in shuffle mode)
@@ -169,7 +181,11 @@ public class PhotoController {
 			@RequestParam(defaultValue = "true") boolean doShuffle,
 			@RequestParam(required = false) Long afterId) {
 		int size = Math.min(Math.max(count, 1), 50);
-		List<Long> allIds = mediaFileRepository.findIdsByKind(MediaKind.IMAGE);
+		Optional<Folder> folder = folderId != null ? folderService.getFolder(folderId) : Optional.empty();
+		List<Long> allIds = folder
+				.map(f -> mediaFileRepository.findIdsByKindAndFolderSubtree(
+						MediaKind.IMAGE, f.getLibraryFolder(), f.getPath()))
+				.orElseGet(() -> mediaFileRepository.findIdsByKind(MediaKind.IMAGE));
 		if (allIds.isEmpty()) {
 			return ResponseEntity.noContent().build();
 		}
