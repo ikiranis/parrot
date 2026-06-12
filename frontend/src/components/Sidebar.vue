@@ -1,10 +1,24 @@
 <script setup lang="ts">
 import {language} from "@/functions/languageStore.ts";
+import {triggerReload} from "@/functions/reloadStore.ts";
 import {computed, ComputedRef} from "vue";
 import {useRoute} from "vue-router";
 import LanguageSelect from "@/components/utilities/LanguageSelect.vue";
 
 const route = useRoute()
+
+/**
+ * Forces the target view to reset and reload when its menu item is clicked.
+ *
+ * The photo grid and slideshow drill into folders by mutating internal state
+ * without changing the route, so a router-link to the same route would be a
+ * no-op. Bumping the reload key remounts the view, resetting it to its root.
+ *
+ * @param page the route name being navigated to
+ */
+const reloadView = (page: string): void => {
+    if (route.name === page) triggerReload()
+}
 
 /** Props for the Sidebar component. */
 interface Props {
@@ -75,6 +89,7 @@ const getIconSize: ComputedRef<number> = computed(() => {
             </router-link>
 
             <router-link :to="{ name: 'Photos' }"
+                         @click="reloadView('Photos')"
                          :class="checkCurrentPage('Photos') + ' ' + menuItemClasses"
                          :title="language.get('Photos')">
                 <span>
@@ -89,6 +104,7 @@ const getIconSize: ComputedRef<number> = computed(() => {
             </router-link>
 
             <router-link :to="{ name: 'Slideshow' }"
+                         @click="reloadView('Slideshow')"
                          :class="checkCurrentPage('Slideshow') + ' ' + menuItemClasses"
                          :title="language.get('Slideshow')">
                 <span>

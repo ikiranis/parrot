@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import {language} from "./functions/languageStore.ts";
+import {reloadKey} from "./functions/reloadStore.ts";
 import {onMounted, ref} from "vue";
 import {checkAppAlive} from "@/api/general.ts";
 import Sidebar from "@/components/Sidebar.vue";
@@ -75,7 +76,7 @@ const collapse = () => {
             </div>
 
             <div class="content__view">
-                <router-view/>
+                <router-view :key="reloadKey"/>
             </div>
         </div>
     </div>
