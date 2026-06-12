@@ -6,6 +6,7 @@ import { errorStore } from "@/components/error/errorStore.ts"
 import { getPhotos, getPhotoImageUrl, getThumbnailUrl, setPhotoRating, incrementPhotoView, deletePhoto } from "@/api/photo.ts"
 import { getFolderChainByPhoto } from "@/api/folder.ts"
 import { getSettingByName } from "@/api/setting.ts"
+import { triggerReload } from "@/functions/reloadStore.ts"
 import type { MediaFile, PhotoDetail } from "@/types"
 import Error from "@/components/error/Error.vue"
 
@@ -367,6 +368,32 @@ const goToPhotoFolder = async () => {
 	}
 }
 
+/**
+ * Restarts the slideshow scoped to the folder that contains the current photo.
+ *
+ * Resolves the photo's folder chain on the server and re-enters the Slideshow route
+ * with the deepest folder's id as the folderId query, so the new slideshow draws only
+ * from that folder. When the photo sits directly in the library root the chain is empty
+ * and the slideshow restarts scoped to the root. Bumping the reload key forces the view
+ * to remount so it reloads cleanly under the new folder scope rather than reusing the
+ * current photo queue and history.
+ */
+const loadFolderSlideshow = async () => {
+	if (!currentPhoto.value) return
+	try {
+		const chain = await getFolderChainByPhoto(currentPhoto.value.id)
+		const folder = chain[chain.length - 1]
+		await router.push({
+			name: "Slideshow",
+			query: folder ? { folderId: folder.id } : {}
+		})
+		triggerReload()
+	} catch (error: unknown) {
+		const err = error as { response?: { data?: { message?: string; status?: number } }; message?: string }
+		errorStore.set(true, err.response?.data?.message ?? err.message ?? '', err.response?.data?.status ?? 500)
+	}
+}
+
 const handleKeydown = (event: KeyboardEvent) => {
 	if (showDeleteModal.value) {
 		if (event.key === 'Escape') showDeleteModal.value = false
@@ -389,6 +416,8 @@ const handleKeydown = (event: KeyboardEvent) => {
 		if (currentPhoto.value) showDeleteModal.value = true
 	} else if (event.key === 's' || event.key === 'S') {
 		toggleShuffle()
+	} else if (event.key === 'l' || event.key === 'L') {
+		loadFolderSlideshow()
 	}
 }
 
