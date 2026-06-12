@@ -3,23 +3,6 @@ import config from "@/functions/config.ts"
 import type { Folder, MediaFile, PageResponse } from "@/types"
 
 /**
- * Retrieves all scanned folder records from the library.
- *
- * @returns array of {@link Folder} entries
- */
-export const getFolders = async (): Promise<Folder[]> => {
-	try {
-		const response = await axios.get(config.defaultServer() + "/api/folders")
-		if (response.status === 200) {
-			return response.data
-		}
-		return []
-	} catch (error: unknown) {
-		throw error
-	}
-}
-
-/**
  * Retrieves all folders at the specified nesting level.
  * Level 1 contains direct children of the library root.
  *
@@ -102,17 +85,4 @@ export const getThumbnailUrl = (thumbnailId: number): string =>
 export const createFolderThumbnail = async (id: number): Promise<number> => {
 	const response = await axios.post(config.defaultServer() + `/api/folders/${id}/thumbnail`)
 	return response.data.thumbnailId
-}
-
-/**
- * Deletes all folder records from the database.
- *
- * @returns void on success
- */
-export const clearFolders = async (): Promise<void> => {
-	try {
-		await axios.delete(config.defaultServer() + "/api/folders")
-	} catch (error: unknown) {
-		throw error
-	}
 }

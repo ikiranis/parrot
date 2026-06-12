@@ -40,23 +40,65 @@ import { language } from "@/functions/languageStore.ts";
                     </div>
                 </div>
             </router-link>
+
+            <router-link class="btn p-0 m-3" :to="{ name: 'Slideshow' }">
+                <div class="card">
+                    <div class="card-img-top">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" fill="currentColor"
+                            class="bi bi-play-btn-fill" viewBox="0 0 16 16">
+                            <path d="M0 12V4a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2zm6.79-6.907A.5.5 0 0 0 6 5.5v5a.5.5 0 0 0 .79.407l3.5-2.5a.5.5 0 0 0 0-.814l-3.5-2.5z"/>
+                        </svg>
+                    </div>
+
+                    <div class="card-body">
+                        <h5 class="card-title">{{ language.get("Slideshow") }}</h5>
+
+                        <p class="card-text">{{ language.get("Play photos as a slideshow") }}</p>
+                    </div>
+                </div>
+            </router-link>
+
+            <router-link class="btn p-0 m-3" :to="{ name: 'LibraryFolders' }">
+                <div class="card">
+                    <div class="card-img-top">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" fill="currentColor"
+                            class="bi bi-folder-plus" viewBox="0 0 16 16">
+                            <path d="m.5 3 .04.87a2 2 0 0 0-.342 1.311l.637 7A2 2 0 0 0 2.826 14H9v-1H2.826a1 1 0 0 1-.995-.91l-.637-7A1 1 0 0 1 2.19 4h11.62a1 1 0 0 1 .996 1.09L14.54 8h1.005l.256-2.819A2 2 0 0 0 13.81 3H9.828a2 2 0 0 1-1.414-.586l-.828-.828A2 2 0 0 0 6.172 1H2.5a2 2 0 0 0-2 2m5.672-1a1 1 0 0 1 .707.293L7.586 3H2.19q-.362.002-.683.12L1.5 2.98a1 1 0 0 1 1-.98z"/>
+                            <path d="M13.5 9a.5.5 0 0 1 .5.5V11h1.5a.5.5 0 1 1 0 1H14v1.5a.5.5 0 1 1-1 0V12h-1.5a.5.5 0 0 1 0-1H13V9.5a.5.5 0 0 1 .5-.5"/>
+                        </svg>
+                    </div>
+
+                    <div class="card-body">
+                        <h5 class="card-title">{{ language.get("Library Folders") }}</h5>
+
+                        <p class="card-text">{{ language.get("Manage library folders") }}</p>
+                    </div>
+                </div>
+            </router-link>
         </div>
     </div>
 </template>
 
 <style scoped lang="scss">
-.logo {
-    height: 6em;
-    padding: 1.5em;
-    will-change: filter;
-    transition: filter 300ms;
+.btn .card {
+    width: 180px;
+    height: 180px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+    padding-top: 1.25rem;
 }
 
-.logo:hover {
-    filter: drop-shadow(0 0 2em #646cffaa);
+.btn .card-img-top {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
 }
 
-.logo.vue:hover {
-    filter: drop-shadow(0 0 2em #42b883aa);
+.btn .card-body {
+    padding: 0.75rem 0.5rem 0;
+    text-align: center;
 }
 </style>

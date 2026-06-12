@@ -285,6 +285,19 @@ const launchSlideshow = () => {
 	})
 }
 
+/**
+ * Opens the slideshow scoped to a specific folder card, without first navigating
+ * into it.  Invoked from the play overlay on a folder thumbnail.
+ *
+ * @param folder the folder to play a slideshow from
+ */
+const launchFolderSlideshow = (folder: Folder) => {
+	router.push({
+		name: "Slideshow",
+		query: { folderId: folder.id }
+	})
+}
+
 const handleError = (error: unknown) => {
 	const err = error as { response?: { data?: { message?: string; status?: number } }; message?: string }
 	errorStore.set(true, err.response?.data?.message ?? err.message ?? "", err.response?.data?.status ?? 500)
@@ -401,6 +414,18 @@ const goToNextPhoto = () => {
 						<div v-for="folder in displayFolders" :key="'f-' + folder.id" class="col">
 							<div class="media-card folder-card" @click="navigateInto(folder)" :title="folder.path">
 								<div class="media-thumb">
+									<!-- Play overlay: starts a slideshow scoped to this folder -->
+									<button
+										type="button"
+										class="play-overlay"
+										@click.stop="launchFolderSlideshow(folder)"
+										:title="language.get('Slideshow')"
+										:aria-label="language.get('Slideshow')"
+									>
+										<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="white" viewBox="0 0 16 16">
+											<path d="m11.596 8.697-6.363 3.692c-.54.313-1.233-.066-1.233-.697V4.308c0-.63.692-1.01 1.233-.696l6.363 3.692a.802.802 0 0 1 0 1.393z"/>
+										</svg>
+									</button>
 									<div v-if="loadingFolderThumbnails.has(folder.id)" class="thumb-generating">
 										<span class="spinner-border spinner-border-sm text-secondary" role="status"></span>
 									</div>
@@ -577,6 +602,40 @@ const goToNextPhoto = () => {
 	.breadcrumb-home {
 		display: inline-flex;
 		align-items: center;
+	}
+
+	.play-overlay {
+		position: absolute;
+		bottom: 6px;
+		right: 6px;
+		width: 36px;
+		height: 36px;
+		padding: 0;
+		border: none;
+		border-radius: 50%;
+		background-color: rgba(13, 110, 253, 0.85);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		opacity: 0;
+		transform: scale(0.9);
+		transition: opacity 0.15s, transform 0.15s, background-color 0.15s;
+		cursor: pointer;
+		z-index: 2;
+	}
+
+	.play-overlay svg {
+		margin-left: 2px;
+	}
+
+	.folder-card:hover .play-overlay,
+	.play-overlay:focus-visible {
+		opacity: 1;
+		transform: scale(1);
+	}
+
+	.play-overlay:hover {
+		background-color: rgba(13, 110, 253, 1);
 	}
 
 	.type-badge {
