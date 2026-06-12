@@ -30,7 +30,10 @@ const routes : RouteRecordRaw[] = [
     {
         path: '/photos',
         name: 'Photos',
-        component: Photos
+        component: Photos,
+        props: route => ({
+            folderId: route.query.folderId != null ? Number(route.query.folderId) : null
+        })
     },
     {
         path: '/library-folders',

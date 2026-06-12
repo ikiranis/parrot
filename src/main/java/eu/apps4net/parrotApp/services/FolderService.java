@@ -11,6 +11,7 @@ import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Optional;
@@ -84,6 +85,38 @@ public class FolderService {
 	 */
 	public Optional<Folder> getFolderByPath(LibraryFolder libraryFolder, String path) {
 		return folderRepository.findByLibraryFolderAndPath(libraryFolder, path);
+	}
+
+	/**
+	 * Builds the ancestor-to-target chain of folders for the given relative path.
+	 *
+	 * The chain is ordered from the shallowest folder (a direct child of the library
+	 * root) down to the folder that exactly matches the supplied path, mirroring the
+	 * breadcrumb trail the photo grid builds when a user navigates by hand. Each path
+	 * prefix is resolved to its persisted folder record; prefixes without a record are
+	 * skipped. An empty or null path yields an empty chain, since it denotes the library
+	 * root, which has no folder card of its own.
+	 *
+	 * @param libraryFolder the library folder the path belongs to
+	 * @param path          the relative path whose folder chain is requested
+	 * @return the ordered list of folders from top-level ancestor to target; empty for the root
+	 */
+	public List<Folder> getFolderChain(LibraryFolder libraryFolder, String path) {
+		List<Folder> chain = new ArrayList<>();
+		if (path == null || path.isEmpty()) {
+			return chain;
+		}
+		String[] segments = path.split("/");
+		StringBuilder prefix = new StringBuilder();
+		for (int i = 0; i < segments.length; i++) {
+			if (i > 0) {
+				prefix.append("/");
+			}
+			prefix.append(segments[i]);
+			folderRepository.findByLibraryFolderAndPath(libraryFolder, prefix.toString())
+					.ifPresent(chain::add);
+		}
+		return chain;
 	}
 
 	/**

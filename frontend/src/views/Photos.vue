@@ -4,7 +4,7 @@ import { useRouter } from "vue-router"
 import { language } from "@/functions/languageStore.ts"
 import { errorStore } from "@/components/error/errorStore.ts"
 import { createPhotoThumbnail } from "@/api/photo.ts"
-import { getFoldersByLevel, getFolderChildren, getFolderPhotosPage, getThumbnailUrl, createFolderThumbnail } from "@/api/folder.ts"
+import { getFoldersByLevel, getFolderChildren, getFolderPhotosPage, getFolderChain, getThumbnailUrl, createFolderThumbnail } from "@/api/folder.ts"
 import { MediaFile, Folder } from "@/types"
 import Error from "@/components/error/Error.vue"
 import Loading from "@/components/utilities/Loading.vue"
@@ -13,6 +13,21 @@ import PhotoDetail from "@/components/PhotoDetail.vue"
 const PAGE_SIZE = 50
 /** Larger initial fetch for root-level photos, which are rarely paginated. */
 const ROOT_PAGE_SIZE = 200
+
+/**
+ * Props for the photo grid.
+ *
+ * @property folderId id of the folder to open directly; when null the grid opens at
+ *           the library root. Supplied via the route query, e.g. when jumping to a
+ *           photo's folder from the slideshow
+ */
+interface PhotosProps {
+	folderId?: number | null
+}
+
+const props = withDefaults(defineProps<PhotosProps>(), {
+	folderId: null
+})
 
 const router = useRouter()
 
@@ -55,7 +70,14 @@ const scrollAreaRef: Ref<HTMLElement | null> = ref(null)
 let intersectionObserver: IntersectionObserver | null = null
 
 onMounted(() => {
-	loadRoot()
+	if (props.folderId != null) loadFolderById(props.folderId)
+	else loadRoot()
+})
+
+// Re-open the requested folder when the route query changes while the grid stays mounted.
+watch(() => props.folderId, (folderId) => {
+	if (folderId != null) loadFolderById(folderId)
+	else loadRoot()
 })
 
 onUnmounted(() => {
@@ -163,6 +185,41 @@ const loadRoot = async () => {
 	generateMissingThumbnails(displayPhotos.value)
 
 	loading.value = false
+}
+
+/**
+ * Opens the grid directly on the folder with the given id, rebuilding the breadcrumb
+ * from the folder's ancestor chain so navigating up and Home behave as if the user had
+ * drilled in by hand. Falls back to the library root when the chain cannot be resolved
+ * (e.g. an unknown id or a photo that sits directly in the root).
+ *
+ * @param folderId the id of the folder to open
+ */
+const loadFolderById = async (folderId: number) => {
+	loading.value = true
+	displayFolders.value = []
+	loadingFolderThumbnails.value = new Set()
+	resetPhotoState()
+
+	let chain: Folder[]
+	try {
+		chain = await getFolderChain(folderId)
+	} catch (e) {
+		handleError(e)
+		await loadRoot()
+		return
+	}
+
+	if (chain.length === 0) {
+		await loadRoot()
+		return
+	}
+
+	folderStack.value = chain
+	await loadFolderContent(chain[chain.length - 1])
+
+	loading.value = false
+	if (hasMorePhotos.value) setupObserver()
 }
 
 /**

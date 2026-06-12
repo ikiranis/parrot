@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { ref, Ref, computed, watch, nextTick, onMounted, onUnmounted } from "vue"
+import { useRouter } from "vue-router"
 import { language } from "@/functions/languageStore.ts"
 import { errorStore } from "@/components/error/errorStore.ts"
 import { getPhotos, getPhotoImageUrl, getThumbnailUrl, setPhotoRating, incrementPhotoView, deletePhoto } from "@/api/photo.ts"
+import { getFolderChainByPhoto } from "@/api/folder.ts"
 import { getSettingByName } from "@/api/setting.ts"
 import type { MediaFile, PhotoDetail } from "@/types"
 import Error from "@/components/error/Error.vue"
@@ -20,6 +22,8 @@ interface SlideshowProps {
 const props = withDefaults(defineProps<SlideshowProps>(), {
 	folderId: null
 })
+
+const router = useRouter()
 
 const PREFETCH_MAX = 10
 const MAX_HISTORY = 20
@@ -340,13 +344,37 @@ const deleteCurrentPhoto = async () => {
 	await navigateForward()
 }
 
+/**
+ * Opens the photo grid scoped to the folder that contains the current photo.
+ *
+ * Resolves the photo's folder chain on the server and navigates to the Photos view,
+ * passing the deepest folder's id so the grid opens directly on that folder with its
+ * breadcrumb rebuilt. When the photo sits directly in the library root the chain is
+ * empty and the grid opens at the root.
+ */
+const goToPhotoFolder = async () => {
+	if (!currentPhoto.value) return
+	try {
+		const chain = await getFolderChainByPhoto(currentPhoto.value.id)
+		const folder = chain[chain.length - 1]
+		await router.push({
+			name: "Photos",
+			query: folder ? { folderId: folder.id } : {}
+		})
+	} catch (error: unknown) {
+		const err = error as { response?: { data?: { message?: string; status?: number } }; message?: string }
+		errorStore.set(true, err.response?.data?.message ?? err.message ?? '', err.response?.data?.status ?? 500)
+	}
+}
+
 const handleKeydown = (event: KeyboardEvent) => {
 	if (showDeleteModal.value) {
 		if (event.key === 'Escape') showDeleteModal.value = false
 		else if (event.key === 'Enter') deleteCurrentPhoto()
 		return
 	}
-	if (event.key === 'ArrowRight') navigateForward()
+	if (event.key === 'Enter') goToPhotoFolder()
+	else if (event.key === 'ArrowRight') navigateForward()
 	else if (event.key === 'ArrowLeft') navigateBack()
 	else if (event.key === 'ArrowDown') {
 		event.preventDefault()

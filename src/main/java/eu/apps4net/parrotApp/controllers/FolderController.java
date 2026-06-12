@@ -111,6 +111,46 @@ public class FolderController {
 	}
 
 	/**
+	 * Returns the ancestor-to-target folder chain for the folder that directly
+	 * contains the given photo.
+	 *
+	 * The chain is ordered from the top-level ancestor (a direct child of the library
+	 * root) down to the folder holding the photo, mirroring the breadcrumb trail the
+	 * photo grid builds when navigating by hand. It lets a caller jump straight to a
+	 * photo's folder without walking the hierarchy.
+	 *
+	 * @param photoId the primary key of the photo whose folder chain is requested
+	 * @return ordered list of folders from top-level ancestor to the photo's folder;
+	 *         empty when the photo sits directly in the library root
+	 * @throws NotFoundException if no photo with the given id exists
+	 */
+	@GetMapping("by-photo/{photoId}")
+	public ResponseEntity<List<Folder>> getFolderChainByPhoto(@PathVariable Long photoId) {
+		MediaFile photo = mediaFileRepository.findById(photoId)
+				.orElseThrow(() -> new NotFoundException("Photo not found: " + photoId));
+		return ResponseEntity.ok(folderService.getFolderChain(photo.getLibraryFolder(), photo.getPath()));
+	}
+
+	/**
+	 * Returns the ancestor-to-target folder chain for the given folder.
+	 *
+	 * The chain is ordered from the top-level ancestor (a direct child of the library
+	 * root) down to and including the folder itself, mirroring the breadcrumb trail the
+	 * photo grid builds when navigating into the folder by hand. It lets the grid rebuild
+	 * its breadcrumb when opened directly on a deep folder.
+	 *
+	 * @param id the primary key of the folder whose chain is requested
+	 * @return ordered list of folders from top-level ancestor to the folder itself
+	 * @throws NotFoundException if no folder with the given id exists
+	 */
+	@GetMapping("{id}/chain")
+	public ResponseEntity<List<Folder>> getFolderChain(@PathVariable Long id) {
+		Folder folder = folderService.getFolder(id)
+				.orElseThrow(() -> new NotFoundException("Folder not found: " + id));
+		return ResponseEntity.ok(folderService.getFolderChain(folder.getLibraryFolder(), folder.getPath()));
+	}
+
+	/**
 	 * Generates a thumbnail for the specified folder and returns its id.
 	 * If the folder already has a thumbnail, returns the existing id without regenerating.
 	 * Returns a 404 if no image files are found in the folder directory tree.

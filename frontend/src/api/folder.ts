@@ -67,6 +67,47 @@ export const getFolderPhotosPage = async (
 }
 
 /**
+ * Retrieves the ancestor-to-target folder chain for the folder that directly
+ * contains the given photo, ordered from the top-level ancestor down to the
+ * photo's folder. The array is empty when the photo sits directly in the
+ * library root.
+ *
+ * @param photoId the primary key of the photo whose folder chain is requested
+ * @returns array of {@link Folder} entries from top-level ancestor to the photo's folder
+ */
+export const getFolderChainByPhoto = async (photoId: number): Promise<Folder[]> => {
+	try {
+		const response = await axios.get(config.defaultServer() + `/api/folders/by-photo/${photoId}`)
+		if (response.status === 200) {
+			return response.data
+		}
+		return []
+	} catch (error: unknown) {
+		throw error
+	}
+}
+
+/**
+ * Retrieves the ancestor-to-target folder chain for the given folder, ordered
+ * from the top-level ancestor down to and including the folder itself. Used to
+ * rebuild the breadcrumb when the grid opens directly on a deep folder.
+ *
+ * @param id the primary key of the folder whose chain is requested
+ * @returns array of {@link Folder} entries from top-level ancestor to the folder itself
+ */
+export const getFolderChain = async (id: number): Promise<Folder[]> => {
+	try {
+		const response = await axios.get(config.defaultServer() + `/api/folders/${id}/chain`)
+		if (response.status === 200) {
+			return response.data
+		}
+		return []
+	} catch (error: unknown) {
+		throw error
+	}
+}
+
+/**
  * Returns the URL that serves the raw thumbnail bytes for the given thumbnail id.
  *
  * @param thumbnailId the primary key of the thumbnail record
