@@ -33,6 +33,7 @@ build/
 .vscode/
 
 derby.log
+.DS_Store
 
 /uploads
 app.lock

@@ -195,7 +195,7 @@ const setupObserver = () => {
 		if (!sentinelRef.value) return
 		intersectionObserver = new IntersectionObserver(
 			entries => { if (entries[0].isIntersecting) loadMorePhotos() },
-			{ root: scrollAreaRef.value, rootMargin: "800px" }
+			{ root: scrollAreaRef.value, rootMargin: "1200px" }
 		)
 		intersectionObserver.observe(sentinelRef.value)
 	})
