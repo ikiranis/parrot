@@ -52,4 +52,22 @@ public class ThumbnailJobService {
 		int count = thumbnailService.generateFolderThumbnails();
 		System.out.println("ThumbnailJobService: run at " + start + " — " + count + " folder thumbnail(s) regenerated");
 	}
+
+	/**
+	 * Deletes stale {@code FILE} thumbnails once per day at 17:00.
+	 * Thumbnails of type {@code FILE} whose last-update timestamp is older than 2 days are
+	 * removed from the database and their corresponding files are deleted from disk.
+	 * If a media library scan is currently running, this execution is skipped and will
+	 * be retried at the next scheduled tick (the following day at 17:00).
+	 * Logs the run timestamp and the number of thumbnails cleaned up.
+	 */
+	@Scheduled(cron = "0 0 17 * * *")
+	public void cleanOldFileThumbnails() {
+		if (scanJobService.isScanning()) {
+			return;
+		}
+		LocalDateTime start = LocalDateTime.now();
+		int count = thumbnailService.cleanOldFileThumbnails();
+		System.out.println("ThumbnailJobService: cleanup at " + start + " — " + count + " old file thumbnail(s) removed");
+	}
 }

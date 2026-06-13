@@ -2,11 +2,13 @@ package eu.apps4net.parrotApp.services;
 
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import eu.apps4net.parrotApp.models.Folder;
 import eu.apps4net.parrotApp.models.Thumbnail;
 import eu.apps4net.parrotApp.models.ThumbnailType;
 import eu.apps4net.parrotApp.repositories.FolderRepository;
+import eu.apps4net.parrotApp.repositories.MediaFileRepository;
 import eu.apps4net.parrotApp.repositories.PhotoTagRepository;
 import eu.apps4net.parrotApp.repositories.ThumbnailRepository;
 
@@ -66,18 +68,23 @@ public class ThumbnailService {
 	/** Repository used to look up per-photo ratings for weighted image selection. */
 	private final PhotoTagRepository photoTagRepository;
 
+	/** Repository used to detach stale thumbnail references from media files during cleanup. */
+	private final MediaFileRepository mediaFileRepository;
+
 	/**
 	 * Constructs a new {@code ThumbnailService}.
 	 *
 	 * @param thumbnailRepository the thumbnail repository
 	 * @param folderRepository    the folder repository
 	 * @param photoTagRepository  the photo-tag repository
+	 * @param mediaFileRepository the media file repository
 	 */
 	public ThumbnailService(ThumbnailRepository thumbnailRepository, FolderRepository folderRepository,
-			PhotoTagRepository photoTagRepository) {
+			PhotoTagRepository photoTagRepository, MediaFileRepository mediaFileRepository) {
 		this.thumbnailRepository = thumbnailRepository;
 		this.folderRepository = folderRepository;
 		this.photoTagRepository = photoTagRepository;
+		this.mediaFileRepository = mediaFileRepository;
 	}
 
 	/**
@@ -279,6 +286,35 @@ public class ThumbnailService {
 			}
 		}
 		return count;
+	}
+
+	/**
+	 * Deletes all {@link ThumbnailType#FILE} thumbnails whose {@code dateUpdate} is older than
+	 * 2 days. For each stale record the corresponding physical file is removed from disk and
+	 * the database row is deleted. Any {@link eu.apps4net.parrotApp.models.MediaFile} that still
+	 * references a stale thumbnail has its {@code thumbnail_id} set to {@code null} first to
+	 * avoid FK constraint violations.
+	 *
+	 * @return the number of stale thumbnail records deleted
+	 */
+	@Transactional
+	public int cleanOldFileThumbnails() {
+		LocalDateTime cutoff = LocalDateTime.now().minusDays(2);
+		List<Thumbnail> stale = thumbnailRepository.findByTypeAndDateUpdateBefore(ThumbnailType.FILE, cutoff);
+		if (stale.isEmpty()) return 0;
+
+		List<Long> ids = stale.stream().map(Thumbnail::getId).collect(Collectors.toList());
+		mediaFileRepository.detachThumbnailsByIds(ids);
+		thumbnailRepository.deleteAll(stale);
+
+		for (Thumbnail t : stale) {
+			try {
+				Files.deleteIfExists(Paths.get(THUMBNAILS_ROOT).resolve(t.getPath()));
+			} catch (IOException e) {
+				System.err.println("ThumbnailService: could not delete thumbnail file " + t.getPath() + " — " + e.getMessage());
+			}
+		}
+		return stale.size();
 	}
 
 	/**

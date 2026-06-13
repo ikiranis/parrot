@@ -3,8 +3,11 @@ package eu.apps4net.parrotApp.repositories;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.stereotype.Repository;
+
+import java.util.List;
 
 import eu.apps4net.parrotApp.models.LibraryFolder;
 import eu.apps4net.parrotApp.models.MediaFile;
@@ -334,4 +337,15 @@ public interface MediaFileRepository extends JpaRepository<MediaFile, Long> {
 	 */
 	@Query("SELECT COUNT(mf) FROM MediaFile mf WHERE mf.kind = ?1 AND NOT EXISTS (SELECT pt FROM PhotoTag pt WHERE pt.mediaFile = mf)")
 	long countByKindWithoutPhotoTag(MediaKind kind);
+
+	/**
+	 * Sets {@code thumbnail_id} to {@code null} for all media files whose thumbnail id is in the given list.
+	 * Used before deleting stale {@link eu.apps4net.parrotApp.models.Thumbnail} records to prevent FK constraint violations.
+	 * The persistence context is cleared after execution so subsequent queries see the updated state.
+	 *
+	 * @param ids the thumbnail ids to detach; must not be empty
+	 */
+	@Modifying(clearAutomatically = true)
+	@Query("UPDATE MediaFile mf SET mf.thumbnail = null WHERE mf.thumbnail.id IN :ids")
+	void detachThumbnailsByIds(@org.springframework.data.repository.query.Param("ids") List<Long> ids);
 }
