@@ -3,7 +3,7 @@ import { ref, Ref, onMounted } from "vue"
 import { language } from "@/functions/languageStore.ts"
 import { errorStore } from "@/components/error/errorStore.ts"
 import { getLibraryFolders, deleteLibraryFolder } from "@/api/libraryFolder.ts"
-import { exportTagData, importTagData } from "@/api/photo.ts"
+import { exportTagData, importTagData, importCsvPaths } from "@/api/photo.ts"
 import { deepClean } from "@/api/general.ts"
 import type { LibraryFolder, TagExportItem } from "@/types"
 import router from "@/router"
@@ -16,8 +16,10 @@ const IMPORT_CHUNK_SIZE = 500
 const loading = ref(false)
 const folders: Ref<LibraryFolder[]> = ref([])
 const importFileInput = ref<HTMLInputElement | null>(null)
+const csvImportFileInput = ref<HTMLInputElement | null>(null)
 const exportLoading = ref(false)
 const importLoading = ref(false)
+const csvImportLoading = ref(false)
 /** Progress percentage (0–100) while an import is running; null otherwise. */
 const importProgress = ref<number | null>(null)
 /** Running totals shown below the progress bar. */
@@ -104,6 +106,76 @@ const onImport = () => {
 	importFileInput.value?.click()
 }
 
+const CSV_PREFIX = '/data/Photos/photos www'
+
+/**
+ * Parses a single CSV line, handling RFC 4180 double-quote escaping.
+ *
+ * @param line raw CSV line
+ * @returns array of field values
+ */
+const parseCsvLine = (line: string): string[] => {
+	const result: string[] = []
+	let current = ''
+	let inQuotes = false
+	for (let i = 0; i < line.length; i++) {
+		const ch = line[i]
+		if (ch === '"') {
+			if (inQuotes && line[i + 1] === '"') {
+				current += '"'
+				i++
+			} else {
+				inQuotes = !inQuotes
+			}
+		} else if (ch === ',' && !inQuotes) {
+			result.push(current)
+			current = ''
+		} else {
+			current += ch
+		}
+	}
+	result.push(current)
+	return result
+}
+
+const onImportCsv = () => {
+	csvImportFileInput.value?.click()
+}
+
+const onCsvFileSelected = async (event: Event) => {
+	const file = (event.target as HTMLInputElement).files?.[0]
+	if (!file) return
+	csvImportLoading.value = true
+	try {
+		const text = await file.text()
+		const lines = text.split(/\r?\n/)
+		const paths: string[] = []
+		for (let i = 1; i < lines.length; i++) {
+			const line = lines[i].trim()
+			if (!line) continue
+			const cols = parseCsvLine(line)
+			if (cols.length < 5) continue
+			const filePath = cols[4].trim()
+			if (!filePath) continue
+			const stripped = filePath.startsWith(CSV_PREFIX) ? filePath.slice(CSV_PREFIX.length) : filePath
+			const relativePath = stripped.startsWith('/') ? stripped.slice(1) : stripped
+			if (relativePath) paths.push(relativePath)
+		}
+		if (paths.length === 0) {
+			alert(language.get("No valid file paths found in CSV"))
+			return
+		}
+		const result = await importCsvPaths(paths)
+		alert(`${language.get("CSV import complete")}: ${result.updated} ${language.get("updated")}, ${result.notFound} ${language.get("not found")}`)
+	} catch (error: unknown) {
+		const err = error as { response?: { data?: { message?: string; status?: number } }; message?: string }
+		errorStore.set(true, err.response?.data?.message ?? err.message ?? "", err.response?.data?.status ?? 500)
+	} finally {
+		csvImportLoading.value = false
+		;(event.target as HTMLInputElement).value = ''
+	}
+}
+
 const onFileSelected = async (event: Event) => {
 	const file = (event.target as HTMLInputElement).files?.[0]
 	if (!file) return
@@ -161,6 +233,17 @@ const onFileSelected = async (event: Event) => {
 					accept=".json,application/json"
 					class="d-none"
 					@change="onFileSelected"
+				/>
+				<button class="btn btn-outline-secondary btn-sm" :disabled="csvImportLoading" @click="onImportCsv">
+					<span v-if="csvImportLoading" class="spinner-border spinner-border-sm me-1" role="status"></span>
+					{{ language.get("Import CSV") }}
+				</button>
+				<input
+					ref="csvImportFileInput"
+					type="file"
+					accept=".csv,text/csv"
+					class="d-none"
+					@change="onCsvFileSelected"
 				/>
 				<button class="btn btn-primary btn-sm" :disabled="loading" @click="onAdd">
 					{{ language.get("Add Folder") }}
