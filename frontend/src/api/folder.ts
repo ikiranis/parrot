@@ -40,22 +40,25 @@ export const getFolderChildren = async (id: number): Promise<Folder[]> => {
 }
 
 /**
- * Retrieves a paginated list of image files directly inside the specified folder,
- * sorted by filename ascending.
+ * Retrieves a paginated list of image files directly inside the specified folder.
  *
- * @param id   the primary key of the folder
- * @param page zero-based page index (default 0)
- * @param size number of records per page (default 50)
+ * @param id        the primary key of the folder
+ * @param page      zero-based page index (default 0)
+ * @param size      number of records per page (default 50)
+ * @param sortBy    field to sort by; a MediaFile or PhotoTag field name (default "filename")
+ * @param direction sort direction, "asc" or "desc" (default "asc")
  * @returns a {@link PageResponse} of {@link MediaFile} entries of kind IMAGE within the folder
  */
 export const getFolderPhotosPage = async (
 	id: number,
 	page: number = 0,
-	size: number = 50
+	size: number = 50,
+	sortBy: string = "filename",
+	direction: string = "asc"
 ): Promise<PageResponse<MediaFile>> => {
 	try {
 		const response = await axios.get(config.defaultServer() + `/api/folders/${id}/photos`, {
-			params: { page, size }
+			params: { page, size, sortBy, direction }
 		})
 		if (response.status === 200) {
 			return response.data

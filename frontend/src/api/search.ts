@@ -20,20 +20,24 @@ export const searchFolders = async (query: string): Promise<Folder[]> => {
  * Searches a paginated set of image files whose path or filename contains the given query,
  * optionally constrained to a single rating.
  *
- * @param query  the free-text query matched against photo paths and filenames
- * @param rating exact rating filter (1–5), or null to match all ratings
- * @param page   zero-based page index (default 0)
- * @param size   number of records per page (default 50)
+ * @param query     the free-text query matched against photo paths and filenames
+ * @param rating    exact rating filter (1–5), or null to match all ratings
+ * @param page      zero-based page index (default 0)
+ * @param size      number of records per page (default 50)
+ * @param sortBy    field to sort by; a MediaFile or PhotoTag field name (default "filename")
+ * @param direction sort direction, "asc" or "desc" (default "asc")
  * @returns a {@link PageResponse} of matching {@link MediaFile} entries
  */
 export const searchPhotosPage = async (
 	query: string,
 	rating: number | null = null,
 	page: number = 0,
-	size: number = 50
+	size: number = 50,
+	sortBy: string = "filename",
+	direction: string = "asc"
 ): Promise<PageResponse<MediaFile>> => {
 	const response = await axios.get(config.defaultServer() + "/api/search/photos", {
-		params: { query, rating, page, size }
+		params: { query, rating, page, size, sortBy, direction }
 	})
 	if (response.status === 200) {
 		return response.data

@@ -3,7 +3,6 @@ package eu.apps4net.parrotApp.controllers;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Sort;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -12,6 +11,7 @@ import eu.apps4net.parrotApp.models.MediaFile;
 import eu.apps4net.parrotApp.models.MediaKind;
 import eu.apps4net.parrotApp.repositories.FolderRepository;
 import eu.apps4net.parrotApp.repositories.MediaFileRepository;
+import eu.apps4net.parrotApp.utilities.PhotoSortResolver;
 
 import java.util.List;
 
@@ -74,10 +74,16 @@ public class SearchController {
 	 * absent photos of any rating (or none) match. A blank query matches every photo, so the rating
 	 * filter can be used on its own to list all photos of a given rating.
 	 *
-	 * @param query  the free-text query matched against photo paths and filenames
-	 * @param rating optional exact rating filter (1–5); null matches all ratings
-	 * @param page   zero-based page index (default 0)
-	 * @param size   number of records per page (default 50)
+	 * Results are ordered by the requested {@code sortBy} field and {@code direction}; the field may
+	 * be a MediaFile column (e.g. filename) or a PhotoTag column (e.g. rating, dateTaken). Unknown
+	 * fields fall back to filename. See {@link eu.apps4net.parrotApp.utilities.PhotoSortResolver}.
+	 *
+	 * @param query     the free-text query matched against photo paths and filenames
+	 * @param rating    optional exact rating filter (1–5); null matches all ratings
+	 * @param page      zero-based page index (default 0)
+	 * @param size      number of records per page (default 50)
+	 * @param sortBy    the field to sort by (default filename)
+	 * @param direction the sort direction, "asc" or "desc" (default asc)
 	 * @return a {@link Page} of matching {@link MediaFile} records of kind IMAGE
 	 */
 	@GetMapping("photos")
@@ -85,12 +91,14 @@ public class SearchController {
 			@RequestParam(defaultValue = "") String query,
 			@RequestParam(required = false) Integer rating,
 			@RequestParam(defaultValue = "0") int page,
-			@RequestParam(defaultValue = "50") int size) {
+			@RequestParam(defaultValue = "50") int size,
+			@RequestParam(defaultValue = "filename") String sortBy,
+			@RequestParam(defaultValue = "asc") String direction) {
 		if (rating != null && (rating < 1 || rating > 5)) {
 			return ResponseEntity.ok(new PageImpl<>(List.<MediaFile>of()));
 		}
 		String pattern = "%" + query.trim().toLowerCase() + "%";
-		PageRequest pageable = PageRequest.of(page, size, Sort.by("filename").ascending());
+		PageRequest pageable = PageRequest.of(page, size, PhotoSortResolver.resolve(sortBy, direction));
 		Page<MediaFile> result = (rating != null)
 				? mediaFileRepository.searchByKindAndTextAndRating(MediaKind.IMAGE, pattern, rating, pageable)
 				: mediaFileRepository.searchByKindAndText(MediaKind.IMAGE, pattern, pageable);

@@ -576,4 +576,54 @@
         <language code="el">Είστε σίγουροι ότι θέλετε να διαγράψετε τις επιλεγμένες φωτογραφίες;</language>
     </entry>
 
+    <entry id="Sort by">
+        <language code="en">Sort by</language>
+        <language code="el">Ταξινόμηση κατά</language>
+    </entry>
+
+    <entry id="Sort direction">
+        <language code="en">Sort direction</language>
+        <language code="el">Κατεύθυνση ταξινόμησης</language>
+    </entry>
+
+    <entry id="Ascending">
+        <language code="en">Ascending</language>
+        <language code="el">Αύξουσα</language>
+    </entry>
+
+    <entry id="Descending">
+        <language code="en">Descending</language>
+        <language code="el">Φθίνουσα</language>
+    </entry>
+
+    <entry id="Width">
+        <language code="en">Width</language>
+        <language code="el">Πλάτος</language>
+    </entry>
+
+    <entry id="Height">
+        <language code="en">Height</language>
+        <language code="el">Ύψος</language>
+    </entry>
+
+    <entry id="Camera make">
+        <language code="en">Camera make</language>
+        <language code="el">Κατασκευαστής κάμερας</language>
+    </entry>
+
+    <entry id="Camera model">
+        <language code="en">Camera model</language>
+        <language code="el">Μοντέλο κάμερας</language>
+    </entry>
+
+    <entry id="Date added">
+        <language code="en">Date added</language>
+        <language code="el">Ημερομηνία προσθήκης</language>
+    </entry>
+
+    <entry id="Date updated">
+        <language code="en">Date updated</language>
+        <language code="el">Ημερομηνία ενημέρωσης</language>
+    </entry>
+
 </root>

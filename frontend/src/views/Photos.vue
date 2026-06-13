@@ -56,6 +56,33 @@ const selectedPhotoIds: Ref<Set<number>> = ref(new Set())
 /** True while a bulk delete of the selected photos is in flight. */
 const deletingSelected: Ref<boolean> = ref(false)
 
+/**
+ * Sortable photo fields offered in the sort selector. Each value must match a field name
+ * accepted by the backend (a MediaFile column or a PhotoTag column); labels are run through
+ * the language store for translation.
+ */
+const SORT_OPTIONS: ReadonlyArray<{ value: string; label: string }> = [
+	{ value: "filename", label: "Filename" },
+	{ value: "name", label: "Name" },
+	{ value: "album", label: "Album" },
+	{ value: "rating", label: "Rating" },
+	{ value: "viewCount", label: "Views" },
+	{ value: "dateTaken", label: "Date Taken" },
+	{ value: "filesize", label: "File Size" },
+	{ value: "width", label: "Width" },
+	{ value: "height", label: "Height" },
+	{ value: "cameraMake", label: "Camera make" },
+	{ value: "cameraModel", label: "Camera model" },
+	{ value: "dateCreated", label: "Date added" },
+	{ value: "dateUpdated", label: "Date updated" }
+]
+
+/** Field the displayed photos are sorted by; one of {@link SORT_OPTIONS} values. */
+const sortField: Ref<string> = ref("filename")
+
+/** Sort direction for the displayed photos: "asc" or "desc". */
+const sortDirection: Ref<string> = ref("asc")
+
 /** Stack of folders the user has navigated into; empty means root (level 1). */
 const folderStack: Ref<Folder[]> = ref([])
 
@@ -119,6 +146,37 @@ watch([searchQuery, searchRating], () => {
 	}, 300)
 })
 
+// Reload the currently displayed photos from the first page whenever the sort changes,
+// preserving the active search or the folder being browsed.
+watch([sortField, sortDirection], () => {
+	reloadForSort()
+})
+
+/**
+ * Reloads the photos for the current view from the first page using the active sort, keeping the
+ * user in the same context: re-runs the active search, reloads the current folder, or reloads the
+ * library root. Sorting is applied server-side because the grid is paginated and MediaFile records
+ * do not carry the PhotoTag fields the user can sort by.
+ */
+const reloadForSort = async () => {
+	if (searchActive.value) {
+		await runSearch()
+		return
+	}
+	const current = folderStack.value[folderStack.value.length - 1]
+	if (!current) {
+		await loadRoot()
+		return
+	}
+	loading.value = true
+	displayFolders.value = []
+	loadingFolderThumbnails.value = new Set()
+	resetPhotoState()
+	await loadFolderContent(current)
+	loading.value = false
+	if (hasMorePhotos.value) setupObserver()
+}
+
 /** Parses the selected rating into a number, or null when "all ratings" is selected. */
 const selectedRating = (): number | null =>
 	searchRating.value === "" ? null : Number(searchRating.value)
@@ -145,7 +203,8 @@ const runSearch = async () => {
 
 	const [folders, photosPage] = await Promise.all([
 		foldersPromise,
-		searchPhotosPage(query, rating, 0, PAGE_SIZE).catch((e: unknown) => { handleError(e); return null })
+		searchPhotosPage(query, rating, 0, PAGE_SIZE, sortField.value, sortDirection.value)
+			.catch((e: unknown) => { handleError(e); return null })
 	])
 
 	displayFolders.value = folders
@@ -245,7 +304,8 @@ const loadFolderContent = async (folder: Folder) => {
 
 	const [children, photosPage] = await Promise.all([
 		getFolderChildren(folder.id).catch((e: unknown) => { handleError(e); return [] as Folder[] }),
-		getFolderPhotosPage(folder.id, 0, PAGE_SIZE).catch((e: unknown) => { handleError(e); return null })
+		getFolderPhotosPage(folder.id, 0, PAGE_SIZE, sortField.value, sortDirection.value)
+			.catch((e: unknown) => { handleError(e); return null })
 	])
 
 	displayFolders.value = children
@@ -284,7 +344,7 @@ const loadRoot = async () => {
 
 	const photoArrays = await Promise.all(
 		rootContainers.map(f =>
-			getFolderPhotosPage(f.id, 0, ROOT_PAGE_SIZE)
+			getFolderPhotosPage(f.id, 0, ROOT_PAGE_SIZE, sortField.value, sortDirection.value)
 				.then(p => p.content)
 				.catch(() => [] as MediaFile[])
 		)
@@ -400,8 +460,10 @@ const loadMorePhotos = async () => {
 	const nextPage = currentPage.value + 1
 	try {
 		const response = searchActive.value
-			? await searchPhotosPage(searchQuery.value.trim(), selectedRating(), nextPage, PAGE_SIZE)
-			: await getFolderPhotosPage(currentFolderId.value!, nextPage, PAGE_SIZE)
+			? await searchPhotosPage(searchQuery.value.trim(), selectedRating(), nextPage, PAGE_SIZE,
+					sortField.value, sortDirection.value)
+			: await getFolderPhotosPage(currentFolderId.value!, nextPage, PAGE_SIZE,
+					sortField.value, sortDirection.value)
 		displayPhotos.value = [...displayPhotos.value, ...response.content]
 		currentPage.value = nextPage
 		hasMorePhotos.value = !response.last
@@ -688,6 +750,29 @@ const deleteSelected = async () => {
 					{{ language.get("photos") }}
 				</div>
 				<div class="photos-actions">
+					<!-- Sort selector: which field to order the displayed photos by, and direction -->
+					<div v-if="displayPhotos.length > 0" class="photos-sort">
+						<select
+							class="form-select form-select-sm photos-sort__field"
+							v-model="sortField"
+							:title="language.get('Sort by')"
+							:aria-label="language.get('Sort by')"
+						>
+							<option v-for="option in SORT_OPTIONS" :key="option.value" :value="option.value">
+								{{ language.get(option.label) }}
+							</option>
+						</select>
+						<select
+							class="form-select form-select-sm photos-sort__dir"
+							v-model="sortDirection"
+							:title="language.get('Sort direction')"
+							:aria-label="language.get('Sort direction')"
+						>
+							<option value="asc">{{ language.get("Ascending") }}</option>
+							<option value="desc">{{ language.get("Descending") }}</option>
+						</select>
+					</div>
+
 					<!-- Bulk-selection toolbar, shown only in edit mode -->
 					<template v-if="editMode">
 						<button
@@ -1012,6 +1097,22 @@ const deleteSelected = async () => {
 		display: inline-flex;
 		align-items: center;
 		white-space: nowrap;
+	}
+
+	.photos-sort {
+		display: flex;
+		gap: 0.25rem;
+		flex-shrink: 0;
+	}
+
+	.photos-sort__field {
+		width: auto;
+		min-width: 8rem;
+	}
+
+	.photos-sort__dir {
+		width: auto;
+		min-width: 6.5rem;
 	}
 
 	.select-checkbox {

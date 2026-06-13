@@ -2,7 +2,6 @@ package eu.apps4net.parrotApp.controllers;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Sort;
 import org.springframework.http.ResponseEntity;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
@@ -15,6 +14,7 @@ import eu.apps4net.parrotApp.models.MediaKind;
 import eu.apps4net.parrotApp.repositories.MediaFileRepository;
 import eu.apps4net.parrotApp.services.FolderService;
 import eu.apps4net.parrotApp.services.ThumbnailService;
+import eu.apps4net.parrotApp.utilities.PhotoSortResolver;
 
 import java.io.IOException;
 import java.util.List;
@@ -92,9 +92,15 @@ public class FolderController {
 	/**
 	 * Returns a paginated list of image files directly inside the specified folder.
 	 *
-	 * @param id   the primary key of the folder
-	 * @param page zero-based page index (default 0)
-	 * @param size number of records per page (default 50)
+	 * Results are ordered by the requested {@code sortBy} field and {@code direction}; the field may
+	 * be a MediaFile column (e.g. filename) or a PhotoTag column (e.g. rating, dateTaken). Unknown
+	 * fields fall back to filename. See {@link eu.apps4net.parrotApp.utilities.PhotoSortResolver}.
+	 *
+	 * @param id        the primary key of the folder
+	 * @param page      zero-based page index (default 0)
+	 * @param size      number of records per page (default 50)
+	 * @param sortBy    the field to sort by (default filename)
+	 * @param direction the sort direction, "asc" or "desc" (default asc)
 	 * @return paginated {@link MediaFile} records of kind IMAGE within the folder
 	 * @throws NotFoundException if no folder with the given id exists
 	 */
@@ -102,11 +108,13 @@ public class FolderController {
 	public ResponseEntity<Page<MediaFile>> getFolderPhotos(
 			@PathVariable Long id,
 			@RequestParam(defaultValue = "0") int page,
-			@RequestParam(defaultValue = "50") int size) {
+			@RequestParam(defaultValue = "50") int size,
+			@RequestParam(defaultValue = "filename") String sortBy,
+			@RequestParam(defaultValue = "asc") String direction) {
 		Folder folder = folderService.getFolder(id)
 				.orElseThrow(() -> new NotFoundException("Folder not found: " + id));
-		PageRequest pageable = PageRequest.of(page, size, Sort.by("filename").ascending());
-		return ResponseEntity.ok(mediaFileRepository.findByLibraryFolderAndPathAndKind(
+		PageRequest pageable = PageRequest.of(page, size, PhotoSortResolver.resolve(sortBy, direction));
+		return ResponseEntity.ok(mediaFileRepository.findFolderImagesSorted(
 				folder.getLibraryFolder(), folder.getPath(), MediaKind.IMAGE, pageable));
 	}
 

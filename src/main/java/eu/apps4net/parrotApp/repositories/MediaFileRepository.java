@@ -60,6 +60,33 @@ public interface MediaFileRepository extends JpaRepository<MediaFile, Long> {
 	Page<MediaFile> findByLibraryFolderAndPathAndKind(LibraryFolder libraryFolder, String path, MediaKind kind, Pageable pageable);
 
 	/**
+	 * Returns a paginated list of media files of the given kind in the given library folder and
+	 * relative directory path, left-joined to their {@link eu.apps4net.parrotApp.models.PhotoTag}
+	 * under the alias {@code pt} so the result can be ordered by either a MediaFile column or a
+	 * PhotoTag column.
+	 *
+	 * The join is a LEFT join: files without a photo tag are still returned, with their PhotoTag
+	 * columns treated as null for ordering purposes. Pass a sort built by
+	 * {@link eu.apps4net.parrotApp.utilities.PhotoSortResolver} so the order-by references valid
+	 * properties on either {@code mf} or {@code pt}.
+	 *
+	 * @param libraryFolder the library folder the files belong to
+	 * @param path          the directory path relative to the library folder root
+	 * @param kind          the media kind to filter by
+	 * @param pageable      pagination and sorting parameters; sort properties may reference {@code pt}
+	 * @return a {@link Page} of matching {@link MediaFile} records
+	 */
+	@Query(value = "SELECT mf FROM MediaFile mf LEFT JOIN PhotoTag pt ON pt.mediaFile = mf "
+			+ "WHERE mf.libraryFolder = :lf AND mf.path = :path AND mf.kind = :kind",
+			countQuery = "SELECT COUNT(mf) FROM MediaFile mf "
+					+ "WHERE mf.libraryFolder = :lf AND mf.path = :path AND mf.kind = :kind")
+	Page<MediaFile> findFolderImagesSorted(
+			@org.springframework.data.repository.query.Param("lf") LibraryFolder libraryFolder,
+			@org.springframework.data.repository.query.Param("path") String path,
+			@org.springframework.data.repository.query.Param("kind") MediaKind kind,
+			Pageable pageable);
+
+	/**
 	 * Returns only the filenames of media files in the given library folder and relative directory path.
 	 * Prefer this over {@link #findByLibraryFolderAndPath} when only filenames are needed,
 	 * to avoid loading full entities into the persistence context.
@@ -126,13 +153,21 @@ public interface MediaFileRepository extends JpaRepository<MediaFile, Long> {
 	 * caller must supply an already-lowercased pattern (e.g. {@code "%beach%"}). Used by the photo
 	 * search to match a free-text query against either the location or the name of a file.
 	 *
+	 * The query left-joins each file to its {@link eu.apps4net.parrotApp.models.PhotoTag} under the
+	 * alias {@code pt} so the result can be ordered by a PhotoTag column as well as a MediaFile
+	 * column; the join is a LEFT join so untagged files still match. As the join is one-to-one it
+	 * never multiplies rows, so an explicit count query without the join is used.
+	 *
 	 * @param kind     the media kind to filter by
 	 * @param pattern  a lowercase SQL LIKE pattern matched against both path and filename
-	 * @param pageable pagination and sorting parameters
+	 * @param pageable pagination and sorting parameters; sort properties may reference {@code pt}
 	 * @return a {@link Page} of matching {@link MediaFile} records
 	 */
-	@Query("SELECT mf FROM MediaFile mf WHERE mf.kind = :kind "
-			+ "AND (LOWER(mf.path) LIKE :pattern OR LOWER(mf.filename) LIKE :pattern)")
+	@Query(value = "SELECT mf FROM MediaFile mf LEFT JOIN PhotoTag pt ON pt.mediaFile = mf "
+			+ "WHERE mf.kind = :kind "
+			+ "AND (LOWER(mf.path) LIKE :pattern OR LOWER(mf.filename) LIKE :pattern)",
+			countQuery = "SELECT COUNT(mf) FROM MediaFile mf WHERE mf.kind = :kind "
+					+ "AND (LOWER(mf.path) LIKE :pattern OR LOWER(mf.filename) LIKE :pattern)")
 	Page<MediaFile> searchByKindAndText(
 			@org.springframework.data.repository.query.Param("kind") MediaKind kind,
 			@org.springframework.data.repository.query.Param("pattern") String pattern,
