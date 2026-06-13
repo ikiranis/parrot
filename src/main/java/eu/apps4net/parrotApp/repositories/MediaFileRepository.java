@@ -205,6 +205,48 @@ public interface MediaFileRepository extends JpaRepository<MediaFile, Long> {
 	List<Long> findIdsByKindAndFolderSubtree(MediaKind kind, LibraryFolder libraryFolder, String path);
 
 	/**
+	 * Returns the IDs of all media files of the given kind whose relative directory path or
+	 * filename matches the given case-insensitive LIKE pattern, ordered by id ascending.
+	 *
+	 * This is the id-only counterpart of {@link #searchByKindAndText}, used to scope a slideshow
+	 * to the current search query: the caller picks a subset of these ids and fetches only those
+	 * records, mirroring how {@link #findIdsByKind} drives an unscoped slideshow. The caller must
+	 * supply an already-lowercased pattern (e.g. {@code "%beach%"}); a {@code "%%"} pattern matches
+	 * every file, so a rating filter can be applied on its own.
+	 *
+	 * @param kind    the media kind to filter by
+	 * @param pattern a lowercase SQL LIKE pattern matched against both path and filename
+	 * @return list of matching record IDs, ordered by id ascending
+	 */
+	@Query("SELECT mf.id FROM MediaFile mf WHERE mf.kind = :kind "
+			+ "AND (LOWER(mf.path) LIKE :pattern OR LOWER(mf.filename) LIKE :pattern) ORDER BY mf.id ASC")
+	List<Long> findIdsByKindAndText(
+			@org.springframework.data.repository.query.Param("kind") MediaKind kind,
+			@org.springframework.data.repository.query.Param("pattern") String pattern);
+
+	/**
+	 * Returns the IDs of all media files of the given kind whose relative directory path or
+	 * filename matches the given case-insensitive LIKE pattern and which carry a
+	 * {@link eu.apps4net.parrotApp.models.PhotoTag} with the exact given rating, ordered by id ascending.
+	 *
+	 * This is the id-only, rating-constrained counterpart of {@link #searchByKindAndTextAndRating},
+	 * used to scope a slideshow to the current search query and rating filter. The inner join on
+	 * {@code PhotoTag} excludes any file that has no tag or a different rating.
+	 *
+	 * @param kind    the media kind to filter by
+	 * @param pattern a lowercase SQL LIKE pattern matched against both path and filename
+	 * @param rating  the exact rating the file's photo tag must have (1–5)
+	 * @return list of matching record IDs, ordered by id ascending
+	 */
+	@Query("SELECT mf.id FROM MediaFile mf JOIN PhotoTag pt ON pt.mediaFile = mf "
+			+ "WHERE mf.kind = :kind AND pt.rating = :rating "
+			+ "AND (LOWER(mf.path) LIKE :pattern OR LOWER(mf.filename) LIKE :pattern) ORDER BY mf.id ASC")
+	List<Long> findIdsByKindAndTextAndRating(
+			@org.springframework.data.repository.query.Param("kind") MediaKind kind,
+			@org.springframework.data.repository.query.Param("pattern") String pattern,
+			@org.springframework.data.repository.query.Param("rating") Integer rating);
+
+	/**
 	 * Deletes all media files of the given kind.
 	 *
 	 * @param kind the media kind to delete

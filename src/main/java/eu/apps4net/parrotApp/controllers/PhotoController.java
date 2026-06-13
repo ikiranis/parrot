@@ -1,5 +1,8 @@
 package eu.apps4net.parrotApp.controllers;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
 import org.springframework.data.domain.Page;
@@ -18,6 +21,7 @@ import eu.apps4net.parrotApp.models.Folder;
 import eu.apps4net.parrotApp.models.MediaFile;
 import eu.apps4net.parrotApp.models.MediaKind;
 import eu.apps4net.parrotApp.models.PhotoDetailDTO;
+import eu.apps4net.parrotApp.models.PhotoQuery;
 import eu.apps4net.parrotApp.models.PhotoTag;
 import eu.apps4net.parrotApp.models.ScanResult;
 import eu.apps4net.parrotApp.models.TagExportItemDTO;
@@ -74,6 +78,9 @@ public class PhotoController {
 	/** JDBC template used for bulk import writes, bypassing JPA dirty-checking overhead. */
 	private final JdbcTemplate jdbcTemplate;
 
+	/** Mapper used to parse the slideshow's JSON search-criteria parameter. */
+	private final ObjectMapper objectMapper;
+
 	/**
 	 * Constructs a new {@code PhotoController}.
 	 *
@@ -84,6 +91,7 @@ public class PhotoController {
 	 * @param photoService        the photo service
 	 * @param folderService       the folder service
 	 * @param jdbcTemplate        the JDBC template
+	 * @param objectMapper        the JSON object mapper
 	 */
 	public PhotoController(MediaScanService mediaScanService,
 						   MediaFileRepository mediaFileRepository,
@@ -91,7 +99,8 @@ public class PhotoController {
 						   ThumbnailService thumbnailService,
 						   PhotoService photoService,
 						   FolderService folderService,
-						   JdbcTemplate jdbcTemplate) {
+						   JdbcTemplate jdbcTemplate,
+						   ObjectMapper objectMapper) {
 		this.mediaScanService = mediaScanService;
 		this.mediaFileRepository = mediaFileRepository;
 		this.photoTagRepository = photoTagRepository;
@@ -99,6 +108,7 @@ public class PhotoController {
 		this.photoService = photoService;
 		this.folderService = folderService;
 		this.jdbcTemplate = jdbcTemplate;
+		this.objectMapper = objectMapper;
 	}
 
 	/**
@@ -160,18 +170,26 @@ public class PhotoController {
 	 * same head records. Either way this avoids both a full-table {@code ORDER BY RANDOM()}
 	 * scan and the page-clustering problem of picking a single random page.
 	 *
-	 * When {@code folderId} is supplied the selection is scoped to that folder's subtree:
-	 * only photos located directly in the folder or in any of its nested subfolders are
-	 * considered. An unknown {@code folderId} falls back to the whole library.
+	 * Scoping precedence:
+	 * - When {@code query} carries an active filter (non-blank text or a rating) the selection is
+	 *   scoped to the current search, mirroring the search endpoint: only photos whose path or
+	 *   filename match the text (and which carry the exact rating, when one is given) are
+	 *   considered. This lets a slideshow play exactly the photos shown in the search results.
+	 * - Otherwise, when {@code folderId} is supplied the selection is scoped to that folder's
+	 *   subtree: only photos located directly in the folder or in any of its nested subfolders
+	 *   are considered. An unknown {@code folderId} falls back to the whole library.
+	 * - Otherwise the whole library is considered.
 	 *
 	 * @param count     number of photos to return (1–50, default 10)
 	 * @param folderId  id of the folder whose subtree to scope the selection to, or null for the
-	 *                  whole library
+	 *                  whole library; ignored when an active search query is supplied
 	 * @param doShuffle true to return a random subset, false to return photos in sequence (default true)
 	 * @param afterId   in sequential mode, the id to resume after; null starts from the first photo
 	 *                  (ignored in shuffle mode)
+	 * @param query     JSON-encoded {@link PhotoQuery} search criteria to scope the selection to, or
+	 *                  null for no search scope; malformed JSON is ignored
 	 * @return 200 with a {@link List} of {@link MediaFile} records (possibly empty at the end of the
-	 *         sequence), or 204 No Content if the library is empty
+	 *         sequence), or 204 No Content if no photo matches the requested scope
 	 */
 	@GetMapping("batch")
 	@Transactional
@@ -179,13 +197,10 @@ public class PhotoController {
 			@RequestParam(defaultValue = "10") int count,
 			@RequestParam(required = false) Long folderId,
 			@RequestParam(defaultValue = "true") boolean doShuffle,
-			@RequestParam(required = false) Long afterId) {
+			@RequestParam(required = false) Long afterId,
+			@RequestParam(required = false) String query) {
 		int size = Math.min(Math.max(count, 1), 50);
-		Optional<Folder> folder = folderId != null ? folderService.getFolder(folderId) : Optional.empty();
-		List<Long> allIds = folder
-				.map(f -> mediaFileRepository.findIdsByKindAndFolderSubtree(
-						MediaKind.IMAGE, f.getLibraryFolder(), f.getPath()))
-				.orElseGet(() -> mediaFileRepository.findIdsByKind(MediaKind.IMAGE));
+		List<Long> allIds = selectBatchIds(folderId, parsePhotoQuery(query));
 		if (allIds.isEmpty()) {
 			return ResponseEntity.noContent().build();
 		}
@@ -220,6 +235,57 @@ public class PhotoController {
 		}
 		ensureThumbnails(photos);
 		return ResponseEntity.ok(photos);
+	}
+
+	/**
+	 * Parses the JSON-encoded search criteria supplied to the photo-batch endpoint.
+	 *
+	 * The criteria travel as a single JSON string so they can grow new filter fields without
+	 * changing the endpoint signature. A null or blank parameter, or JSON that cannot be parsed,
+	 * yields null so the caller simply falls back to a folder or library scope rather than failing.
+	 *
+	 * @param query the raw JSON parameter, or null when no search scope was requested
+	 * @return the parsed {@link PhotoQuery}, or null when absent or unparseable
+	 */
+	private PhotoQuery parsePhotoQuery(String query) {
+		if (query == null || query.isBlank()) {
+			return null;
+		}
+		try {
+			return objectMapper.readValue(query, PhotoQuery.class);
+		} catch (JsonProcessingException e) {
+			return null;
+		}
+	}
+
+	/**
+	 * Selects the candidate photo ids for a batch, applying the scoping precedence documented on
+	 * the batch endpoint: an active search query first, then a folder subtree, then the whole library.
+	 *
+	 * Loading ids alone keeps selection cheap regardless of library size; the caller then picks a
+	 * subset and fetches only those records.
+	 *
+	 * @param folderId id of the folder whose subtree to scope to, or null; ignored when {@code query} is active
+	 * @param query    the parsed search criteria, or null for no search scope
+	 * @return the matching photo ids ordered by id ascending, or an empty list when nothing matches
+	 */
+	private List<Long> selectBatchIds(Long folderId, PhotoQuery query) {
+		if (query != null && query.isActive()) {
+			Integer rating = query.getRating();
+			if (rating != null && (rating < 1 || rating > 5)) {
+				return List.of();
+			}
+			String text = query.getText() == null ? "" : query.getText().trim().toLowerCase();
+			String pattern = "%" + text + "%";
+			return rating != null
+					? mediaFileRepository.findIdsByKindAndTextAndRating(MediaKind.IMAGE, pattern, rating)
+					: mediaFileRepository.findIdsByKindAndText(MediaKind.IMAGE, pattern);
+		}
+		Optional<Folder> folder = folderId != null ? folderService.getFolder(folderId) : Optional.empty();
+		return folder
+				.map(f -> mediaFileRepository.findIdsByKindAndFolderSubtree(
+						MediaKind.IMAGE, f.getLibraryFolder(), f.getPath()))
+				.orElseGet(() -> mediaFileRepository.findIdsByKind(MediaKind.IMAGE));
 	}
 
 	/**

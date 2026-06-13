@@ -52,6 +52,21 @@ export type ScanResult = {
 	message: string
 }
 
+/**
+ * Search criteria describing which photos a search or slideshow should match.
+ *
+ * Carries the free-text query and an optional exact rating filter. Passed as a single JSON
+ * object through the slideshow route and the photo-batch API so the slideshow can play exactly
+ * the photos currently shown in the search results. Designed to grow: future tag-based filters
+ * can be added as additional optional fields without changing the APIs that pass it through.
+ */
+export type PhotoQuery = {
+	/** Free-text query matched against photo paths and filenames; empty matches all photos. */
+	text: string
+	/** Exact rating filter (1–5), or null to match all ratings. */
+	rating: number | null
+}
+
 /** A media file entry as returned by the API. */
 export type MediaFile = {
 	id: number

@@ -7,7 +7,7 @@ import { getPhotos, getPhotoImageUrl, getThumbnailUrl, setPhotoRating, increment
 import { getFolderChainByPhoto } from "@/api/folder.ts"
 import { getSettingByName } from "@/api/setting.ts"
 import { triggerReload } from "@/functions/reloadStore.ts"
-import type { MediaFile, PhotoDetail } from "@/types"
+import type { MediaFile, PhotoDetail, PhotoQuery } from "@/types"
 import Error from "@/components/error/Error.vue"
 
 /**
@@ -15,13 +15,17 @@ import Error from "@/components/error/Error.vue"
  *
  * @property folderId id of the folder to scope the slideshow to; when null the
  *           slideshow draws from the entire library
+ * @property query    search criteria to scope the slideshow to; when set the slideshow plays
+ *           the photos matching the search rather than a folder. Takes precedence over folderId
  */
 interface SlideshowProps {
 	folderId?: number | null
+	query?: PhotoQuery | null
 }
 
 const props = withDefaults(defineProps<SlideshowProps>(), {
-	folderId: null
+	folderId: null,
+	query: null
 })
 
 const router = useRouter()
@@ -226,7 +230,7 @@ const preloadNext = async () => {
 
 	const epoch = fetchEpoch
 	try {
-		const photos = await getPhotos(slots, props.folderId, doShuffle.value, forwardCursor())
+		const photos = await getPhotos(slots, props.folderId, doShuffle.value, forwardCursor(), props.query)
 		// A mode toggle while this fetch was in flight invalidates these photos.
 		if (epoch !== fetchEpoch) return
 		for (const photo of photos) {
@@ -262,7 +266,7 @@ const navigateForward = async () => {
 	} else {
 		const epoch = fetchEpoch
 		try {
-			const photos = await getPhotos(PREFETCH_MAX, props.folderId, doShuffle.value, forwardCursor())
+			const photos = await getPhotos(PREFETCH_MAX, props.folderId, doShuffle.value, forwardCursor(), props.query)
 			// A mode toggle while this fetch was in flight invalidates these photos.
 			if (epoch !== fetchEpoch) {
 				navigating.value = false

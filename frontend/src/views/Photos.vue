@@ -6,7 +6,7 @@ import { errorStore } from "@/components/error/errorStore.ts"
 import { createPhotoThumbnail, deletePhoto } from "@/api/photo.ts"
 import { getFoldersByLevel, getFolderChildren, getFolderPhotosPage, getFolderChain, getThumbnailUrl, createFolderThumbnail } from "@/api/folder.ts"
 import { searchFolders, searchPhotosPage } from "@/api/search.ts"
-import { MediaFile, Folder } from "@/types"
+import { MediaFile, Folder, PhotoQuery } from "@/types"
 import Error from "@/components/error/Error.vue"
 import Loading from "@/components/utilities/Loading.vue"
 import PhotoDetail from "@/components/PhotoDetail.vue"
@@ -465,10 +465,19 @@ const generateMissingThumbnails = (photos: MediaFile[]) => {
 }
 
 /**
- * Opens the slideshow scoped to the folder currently being viewed. At the library
- * root no folder id is passed, so the slideshow draws from the entire library.
+ * Opens the slideshow for the photos currently on screen.
+ *
+ * In search mode the active query and rating filter are passed through as a JSON `q` param so the
+ * slideshow plays exactly the matching search results. Otherwise the slideshow is scoped to the
+ * folder currently being viewed; at the library root no folder id is passed, so it draws from the
+ * entire library.
  */
 const launchSlideshow = () => {
+	if (searchActive.value) {
+		const query: PhotoQuery = { text: searchQuery.value.trim(), rating: selectedRating() }
+		router.push({ name: "Slideshow", query: { q: JSON.stringify(query) } })
+		return
+	}
 	const folder = folderStack.value[folderStack.value.length - 1]
 	router.push({
 		name: "Slideshow",
@@ -702,7 +711,7 @@ const deleteSelected = async () => {
 					</template>
 
 					<button
-						v-if="!editMode && !searchActive && (folderStack.length > 0 || displayPhotos.length > 0)"
+						v-if="!editMode && (searchActive ? displayPhotos.length > 0 : (folderStack.length > 0 || displayPhotos.length > 0))"
 						type="button"
 						class="btn btn-sm btn-outline-primary slideshow-btn"
 						@click="launchSlideshow"

@@ -1,6 +1,6 @@
 import axios from "axios";
 import config from "@/functions/config.ts";
-import type { ScanResult, PhotoDetail, TagExportItem, TagImportResult } from "@/types";
+import type { ScanResult, PhotoDetail, PhotoQuery, TagExportItem, TagImportResult } from "@/types";
 
 /**
  * Triggers a photo scan for the given server-side folder path.
@@ -70,24 +70,31 @@ export const getPhotoById = async (id: number): Promise<PhotoDetail> => {
 }
 
 /**
- * Returns up to `count` photos in a single request, optionally scoped to a folder
- * and optionally shuffled.
- * Returns an empty array when the library is empty (HTTP 204).
+ * Returns up to `count` photos in a single request, optionally scoped to a search query,
+ * a folder, and optionally shuffled.
+ * Returns an empty array when no photo matches the requested scope (HTTP 204).
+ *
+ * Scoping precedence mirrors the backend: when `query` is supplied the selection is scoped to
+ * the matching search results; otherwise `folderId`, if supplied, scopes it to that folder's
+ * subtree; otherwise the whole library is used. The query is sent as a single JSON parameter so
+ * it can carry additional filter fields in future without changing this signature.
  *
  * @param count     number of photos to fetch (default 10)
  * @param folderId  id of the folder to fetch photos from, or null for the root path
  * @param doShuffle when true the photos are returned in random order; otherwise in sequence
  * @param afterId   in sequential mode, resume after this photo id; null starts from the first photo
+ * @param query     search criteria to scope the selection to, or null for no search scope
  * @returns array of {@link MediaFile} records
  */
 export const getPhotos = async (
     count: number = 10,
     folderId: number | null = null,
     doShuffle: boolean = true,
-    afterId: number | null = null
+    afterId: number | null = null,
+    query: PhotoQuery | null = null
 ): Promise<import("@/types").MediaFile[]> => {
     const response = await axios.get(config.defaultServer() + '/api/photos/batch', {
-        params: { count, folderId, doShuffle, afterId },
+        params: { count, folderId, doShuffle, afterId, query: query ? JSON.stringify(query) : null },
         validateStatus: (s) => s === 200 || s === 204
     })
     return response.status === 200 ? response.data : []
