@@ -195,7 +195,7 @@ const setupObserver = () => {
 		if (!sentinelRef.value) return
 		intersectionObserver = new IntersectionObserver(
 			entries => { if (entries[0].isIntersecting) loadMorePhotos() },
-			{ root: scrollAreaRef.value, rootMargin: "200px" }
+			{ root: scrollAreaRef.value, rootMargin: "800px" }
 		)
 		intersectionObserver.observe(sentinelRef.value)
 	})
@@ -410,7 +410,7 @@ const loadMorePhotos = async () => {
 			if (!hasMorePhotos.value || !sentinelRef.value || !scrollAreaRef.value) return
 			const containerRect = scrollAreaRef.value.getBoundingClientRect()
 			const rect = sentinelRef.value.getBoundingClientRect()
-			if (rect.top < containerRect.bottom + 200) loadMorePhotos()
+			if (rect.top < containerRect.bottom + 800) loadMorePhotos()
 		})
 	}
 }
