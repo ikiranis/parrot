@@ -209,6 +209,11 @@ watch(hasMorePhotos, val => {
 	}
 })
 
+// Re-attach the observer when the scroll area re-mounts after closing a photo detail.
+watch(scrollAreaRef, el => {
+	if (el && hasMorePhotos.value) setupObserver()
+})
+
 /** Resets all photo-pagination state and disconnects the observer. */
 const resetPhotoState = () => {
 	displayPhotos.value = []
@@ -495,16 +500,24 @@ const selectedPhotoIndex = computed(() =>
 
 const hasPrevPhoto = computed(() => selectedPhotoIndex.value > 0)
 
-const hasNextPhoto = computed(() => selectedPhotoIndex.value < displayPhotos.value.length - 1)
+const hasNextPhoto = computed(() =>
+	selectedPhotoIndex.value < displayPhotos.value.length - 1 || hasMorePhotos.value
+)
 
 const goToPrevPhoto = () => {
 	const idx = selectedPhotoIndex.value
 	if (idx > 0) selectedPhotoId.value = displayPhotos.value[idx - 1].id
 }
 
-const goToNextPhoto = () => {
+const goToNextPhoto = async () => {
 	const idx = selectedPhotoIndex.value
-	if (idx < displayPhotos.value.length - 1) selectedPhotoId.value = displayPhotos.value[idx + 1].id
+	if (idx < displayPhotos.value.length - 1) {
+		selectedPhotoId.value = displayPhotos.value[idx + 1].id
+	} else if (hasMorePhotos.value) {
+		await loadMorePhotos()
+		if (idx < displayPhotos.value.length - 1)
+			selectedPhotoId.value = displayPhotos.value[idx + 1].id
+	}
 }
 
 const onPhotoDeleted = (id: number) => {
