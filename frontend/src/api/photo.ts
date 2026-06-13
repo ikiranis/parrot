@@ -184,16 +184,3 @@ export const importTagData = async (items: TagExportItem[]): Promise<TagImportRe
     const response = await axios.post(config.defaultServer() + '/api/photos/tags/import', items)
     return response.data
 }
-
-/**
- * Sends a list of relative file paths (stripped of the library-root prefix) extracted from a
- * CSV export and sets the rating to 5 for each matched photo. Creates a PhotoTag record if one
- * does not exist yet.
- *
- * @param paths array of relative paths, e.g. `["2020/Vacation/photo.jpg"]`
- * @returns a {@link TagImportResult} with counts of updated and not-found entries
- */
-export const importCsvPaths = async (paths: string[]): Promise<TagImportResult> => {
-    const response = await axios.post(config.defaultServer() + '/api/photos/csv-import', paths)
-    return response.data
-}

@@ -301,21 +301,6 @@
         <language code="el">Εισαγωγή Ετικετών</language>
     </entry>
 
-    <entry id="Import CSV">
-        <language code="en">Import CSV</language>
-        <language code="el">Εισαγωγή CSV</language>
-    </entry>
-
-    <entry id="No valid file paths found in CSV">
-        <language code="en">No valid file paths found in CSV</language>
-        <language code="el">Δεν βρέθηκαν έγκυρες διαδρομές αρχείων στο CSV</language>
-    </entry>
-
-    <entry id="CSV import complete">
-        <language code="en">CSV import complete</language>
-        <language code="el">Εισαγωγή CSV ολοκληρώθηκε</language>
-    </entry>
-
     <entry id="Import complete">
         <language code="en">Import complete</language>
         <language code="el">Εισαγωγή ολοκληρώθηκε</language>

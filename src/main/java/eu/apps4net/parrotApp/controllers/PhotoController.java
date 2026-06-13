@@ -44,11 +44,9 @@ import java.sql.Types;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.concurrent.ThreadLocalRandom;
 
 /**
@@ -504,97 +502,6 @@ public class PhotoController {
 					return new TagExportItemDTO(fullPath, mf.getFilename(), tag.getRating(), tag.getViewCount());
 				})
 				.toList();
-	}
-
-	/**
-	 * Imports a list of relative file paths from a CSV export and sets the rating to 5 for each
-	 * matched photo. Creates a {@link PhotoTag} record if one does not exist yet.
-	 *
-	 * Each path must be the file path relative to the library folder root, with the filename
-	 * included, e.g. {@code "2020/Vacation/photo.jpg"}. Files at the library root have no
-	 * directory prefix, e.g. {@code "photo.jpg"}.
-	 *
-	 * Performance strategy: all MediaFile records are loaded into an in-memory map once, and all
-	 * photo-tag existence checks are batched into a single query, so the total cost is proportional
-	 * to library size rather than to the number of input paths.
-	 *
-	 * @param paths list of relative file paths to rate
-	 * @return a map with keys {@code updated} (files found and rated) and {@code notFound} (unmatched paths)
-	 */
-	@PostMapping("csv-import")
-	@Transactional
-	public ResponseEntity<Map<String, Integer>> importFromCsv(@RequestBody List<String> paths) {
-		if (paths.isEmpty()) {
-			return ResponseEntity.ok(Map.of("updated", 0, "notFound", 0));
-		}
-
-		// Load all image MediaFiles: relative-path/filename → mediaFile.id
-		Map<String, Long> mediaFileMap = new HashMap<>();
-		jdbcTemplate.query(
-			"SELECT mf.path, mf.filename, mf.id FROM media_file mf WHERE mf.kind = 'IMAGE'",
-			rs -> {
-				String mfPath = rs.getString(1);
-				String filename = rs.getString(2);
-				Long mfId = rs.getLong(3);
-				mediaFileMap.put(Paths.get(mfPath, filename).toString(), mfId);
-			}
-		);
-
-		// Resolve input paths to media file IDs
-		List<Long> foundIds = new ArrayList<>();
-		int notFound = 0;
-		for (String inputPath : paths) {
-			Long mfId = mediaFileMap.get(inputPath);
-			if (mfId == null) {
-				notFound++;
-			} else {
-				foundIds.add(mfId);
-			}
-		}
-
-		if (foundIds.isEmpty()) {
-			return ResponseEntity.ok(Map.of("updated", 0, "notFound", notFound));
-		}
-
-		// Determine which found media files already have a PhotoTag
-		Set<Long> taggedIds = new HashSet<>();
-		jdbcTemplate.query("SELECT media_file_id FROM photo_tag", rs -> {
-			taggedIds.add(rs.getLong(1));
-		});
-
-		List<Long> toUpdate = foundIds.stream().filter(taggedIds::contains).toList();
-		List<Long> toInsert = foundIds.stream().filter(id -> !taggedIds.contains(id)).toList();
-
-		if (!toUpdate.isEmpty()) {
-			jdbcTemplate.batchUpdate(
-				"UPDATE photo_tag SET rating = 5, date_updated = CURRENT_TIMESTAMP WHERE media_file_id = ?",
-				new BatchPreparedStatementSetter() {
-					@Override
-					public void setValues(PreparedStatement ps, int i) throws SQLException {
-						ps.setLong(1, toUpdate.get(i));
-					}
-					@Override
-					public int getBatchSize() { return toUpdate.size(); }
-				}
-			);
-		}
-
-		if (!toInsert.isEmpty()) {
-			jdbcTemplate.batchUpdate(
-				"INSERT INTO photo_tag (media_file_id, rating, date_created, date_updated)"
-					+ " VALUES (?, 5, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
-				new BatchPreparedStatementSetter() {
-					@Override
-					public void setValues(PreparedStatement ps, int i) throws SQLException {
-						ps.setLong(1, toInsert.get(i));
-					}
-					@Override
-					public int getBatchSize() { return toInsert.size(); }
-				}
-			);
-		}
-
-		return ResponseEntity.ok(Map.of("updated", foundIds.size(), "notFound", notFound));
 	}
 
 	/**
