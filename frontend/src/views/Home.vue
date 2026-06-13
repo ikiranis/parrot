@@ -81,8 +81,8 @@ import { language } from "@/functions/languageStore.ts";
 
 <style scoped lang="scss">
 .btn .card {
-    width: 180px;
-    height: 180px;
+    width: 220px;
+    height: 220px;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -100,5 +100,13 @@ import { language } from "@/functions/languageStore.ts";
 .btn .card-body {
     padding: 0.75rem 0.5rem 0;
     text-align: center;
+
+    .card-title {
+        font-size: 1rem;
+    }
+
+    .card-text {
+        font-size: 0.8rem;
+    }
 }
 </style>
